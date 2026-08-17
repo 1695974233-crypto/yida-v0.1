@@ -1,0 +1,1 @@
+CREATE INDEX `idx_feedback_user_created` ON `feedback` (`user_id`,`created_at`);
