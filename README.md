@@ -1,100 +1,121 @@
-# vinext-starter
+# 易搭 Yida v0.1
 
-A clean full-stack starter running on
-[vinext](https://github.com/cloudflare/vinext), with optional Cloudflare D1 and
-Drizzle support.
+> 用你已经拥有的衣服，在几分钟内解决“今天穿什么”。
 
-## Prerequisites
+![易搭产品封面](public/og.png)
 
-- Node.js `>=22.13.0`
+易搭是一款面向日常穿衣决策的 AI 衣柜与穿搭助手。产品结合天气、可用衣物、用户偏好和当天需求，从用户自己的衣柜中生成真正可以执行的搭配，而不是只让用户浏览更多穿搭内容。
 
-## Quick Start
+当前仓库为产品 **v0.1 验证版本**，包含可运行的移动端 Web 原型、持久化衣柜、规则推荐、对话式需求输入，以及完整的产品和技术设计文档。
+
+## 产品目标
+
+易搭希望完成一个持续学习的闭环：
+
+```text
+衣柜数字化 → 生成今天可穿的搭配 → 用户采纳或反馈
+      ↑                              ↓
+      └──────── 越用越懂用户 ────────┘
+```
+
+核心价值不是“生成一张好看的穿搭图”，而是：
+
+- 减少每天做穿衣决定的时间。
+- 提高已有衣服的利用率。
+- 根据天气和实际状态给出可执行推荐。
+- 通过喜欢、点踩、收藏和“今天穿了”持续学习用户偏好。
+- 在用户购买新衣服前，先判断现有衣柜是否已经有类似选择。
+
+## v0.1 已实现
+
+- 移动端优先的可点击产品界面。
+- 用户风格偏好引导。
+- 12 件基础单品组成的虚拟衣柜。
+- 用户独立、可持久化的衣柜数据。
+- 上衣、下装、外套和鞋子的组合推荐。
+- 天气、场景、风格、保暖度和衣服可用状态评分。
+- 上班、约会、休闲和运动场景快捷选择。
+- 对话式穿搭需求输入。
+- 对常见需求的规则理解：场景、冷热、正式程度、颜色和排除单品。
+- 脏衣篓：放入后 3 天内不参与推荐。
+- 喜欢、不感兴趣、收藏和“今天穿这套”反馈。
+- 30 天穿搭历史的产品界面。
+- 私密部署版本。
+
+## v0.1 尚未实现
+
+- 真实定位与天气 API，目前界面使用模拟天气。
+- 衣服照片云端保存。
+- 自动抠图、图片平整和色彩校正。
+- 多模态 AI 衣物属性识别。
+- 大模型驱动的自由对话。
+- AI 模特和本人虚拟试穿。
+- 抖音式个性化信息流模型。
+- 生产级内容版权、审核和合规流程。
+
+## 文档导航
+
+| 文档 | 内容 |
+|---|---|
+| [产品定义](docs/product-overview.md) | 产品定位、核心价值、功能范围和北极星指标 |
+| [目标用户](docs/target-users.md) | 目标市场、用户画像、需求和典型使用场景 |
+| [最小 MVP](docs/mvp-spec.md) | MVP 范围、用户流程、推荐规则和验收标准 |
+| [Agent 与 RAG](docs/agents-and-rag.md) | Agent 组成、职责边界、RAG 拆分和演进方案 |
+| [技术架构](docs/technical-architecture.md) | 前后端、数据库、图片、推荐和 AI 服务架构 |
+| [产品路线图](docs/roadmap.md) | 从 v0.1 到真实测试版的阶段规划 |
+| [隐私与风险](docs/privacy-and-risks.md) | 身体照片、敏感信息、版权、生成内容与安全边界 |
+| [版本记录](CHANGELOG.md) | 每个版本的主要变化 |
+
+## 核心产品流程
+
+```mermaid
+flowchart LR
+    A["定位或选择城市"] --> B["选择场景或直接描述需求"]
+    B --> C["读取可用衣物与脏衣篓"]
+    C --> D["生成并排序候选搭配"]
+    D --> E["返回三套不同方向"]
+    E --> F["喜欢 / 点踩 / 收藏 / 已穿"]
+    F --> G["更新用户偏好"]
+    G --> D
+```
+
+## 本地运行
+
+环境要求：Node.js `>=22.13.0`。
 
 ```bash
 npm install
 npm run dev
+```
+
+验证生产构建：
+
+```bash
 npm run build
 ```
 
-This starter does not use `wrangler.jsonc`.
+数据库结构变化后生成迁移：
 
-## Included Shape
-
-- edit site code under `app/`
-- `.openai/hosting.json` declares optional Sites D1 and R2 bindings
-- `vite.config.ts` simulates declared bindings for local development
-- `db/schema.ts` starts intentionally empty
-- `examples/d1/` contains an optional D1 example surface
-- `drizzle.config.ts` supports local migration generation when needed
-
-## Workspace Auth Headers
-
-Signed-in visitors receive both `oai-authenticated-user-id` and `oai-authenticated-user-email`. Private Sites require every visitor to sign in; public Sites may also have anonymous visitors, for whom neither header is present.
-
-The user ID is stable for the same user on the same Site and different across Sites. Email and name are intended for display or contact purposes.
-
-SIWC-authenticated workspace sites may also receive
-`oai-authenticated-user-full-name` when the user's SIWC profile has a non-empty
-`name` claim. The full-name value is percent-encoded UTF-8 and is accompanied by
-`oai-authenticated-user-full-name-encoding: percent-encoded-utf-8`.
-
-Treat the full name as optional and fall back to email when it is absent:
-
-```tsx
-import { headers } from "next/headers";
-
-export default async function Home() {
-  const requestHeaders = await headers();
-  const userId = requestHeaders.get("oai-authenticated-user-id");
-  const email = requestHeaders.get("oai-authenticated-user-email");
-  const encodedFullName = requestHeaders.get("oai-authenticated-user-full-name");
-  const fullName =
-    encodedFullName &&
-    requestHeaders.get("oai-authenticated-user-full-name-encoding") ===
-      "percent-encoded-utf-8"
-      ? decodeURIComponent(encodedFullName)
-      : null;
-
-  const displayName = fullName ?? email;
-  // ...
-}
+```bash
+npm run db:generate
 ```
 
-## Optional Dispatch-Owned ChatGPT Sign-In
+## 当前技术栈
 
-Import the ready-to-use helpers from `app/chatgpt-auth.ts` when the site needs
-optional or required ChatGPT sign-in:
+- React 19 + TypeScript
+- vinext / Vite
+- Cloudflare Worker 兼容运行时
+- Cloudflare D1 + SQLite
+- Drizzle ORM
+- OpenAI Sites 私密部署
 
-- Use `getChatGPTUser()` for optional signed-in UI.
-- Use `requireChatGPTUser(returnTo)` for server-rendered pages that should send
-  anonymous visitors through Sign in with ChatGPT.
-- Use `chatGPTSignInPath(returnTo)` and `chatGPTSignOutPath(returnTo)` for
-  browser links or actions.
-- Pass a same-origin relative `returnTo` path for the destination after sign-in
-  or sign-out. The helper validates and safely encodes it.
-- Mark protected pages with `export const dynamic = "force-dynamic"` because
-  they depend on per-request identity headers.
+AI 图片识别、真实天气和图片对象存储将在后续版本接入。
 
-Dispatch owns `/signin-with-chatgpt`, `/signout-with-chatgpt`, `/callback`, the
-OAuth cookies, and identity header injection. Do not implement app routes for
-those reserved paths. Routes that do not import and call the helper remain
-anonymous-compatible.
+## 项目状态
 
-SIWC establishes identity only; it does not prove workspace membership. Use the
-Sites hosting platform's access policy controls for workspace-wide restrictions,
-or enforce explicit server-side membership or allowlist checks.
+`v0.1.0` 是产品概念与关键交互的验证版本，适合产品评审、早期用户访谈和下一阶段开发，不应直接作为面向公众的正式生产服务。
 
-Use SIWC for account pages, user-specific dashboards, saved records, and write
-actions tied to the current ChatGPT user. Leave public content anonymous.
+## 维护者
 
-## Useful Commands
-
-- `npm run dev`: start local development
-- `npm run build`: verify the vinext build output
-- `npm test`: build the starter and verify its rendered loading skeleton
-- `npm run db:generate`: generate Drizzle migrations after schema changes
-
-## Learn More
-
-- [vinext Documentation](https://github.com/cloudflare/vinext)
-- [Drizzle D1 Guide](https://orm.drizzle.team/docs/get-started/d1-new)
+- 产品构想与产品负责人：仓库所有者
+- 原型与技术协作：OpenAI Codex
