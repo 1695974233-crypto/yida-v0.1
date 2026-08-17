@@ -1,6 +1,6 @@
 "use client";
 
-import { ChangeEvent, useEffect, useMemo, useState } from "react";
+import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from "react";
 import { defaultCatalogKeys, virtualCatalog } from "./catalog";
 
 type Tab = "today" | "wardrobe" | "discover" | "profile";
@@ -23,14 +23,16 @@ type Garment = {
 
 type FeedbackRecord = { outfitKey: string; action: string };
 type Outfit = { key: string; title: string; tag: string; score: number; colors: string[]; items: string; reason: string; itemIds: number[] };
+type RequestConstraints = { scene?: string; warmth?: "warmer" | "lighter"; formality?: "formal" | "casual"; avoid?: string[]; colors?: string[] };
+type ChatMessage = { id: number; role: "user" | "assistant"; content: string; createdAt?: string };
 
 const initialGarments: Garment[] = defaultCatalogKeys.map((key, index) => {
   const item = virtualCatalog.find((entry) => entry.key === key)!;
   return { id: index + 1, catalogKey: key, ...item, isVirtual: true, dirty: key === "pink-skirt" };
 });
 
-function buildOutfits(garments: Garment[], scene: string | null, styles: string[]): Outfit[] {
-  const available = garments.filter((item) => !item.dirty);
+function buildOutfits(garments: Garment[], scene: string | null, styles: string[], constraints: RequestConstraints): Outfit[] {
+  const available = garments.filter((item) => !item.dirty && !(constraints.avoid ?? []).some((term) => item.name.includes(term) || item.category.includes(term)));
   const tops = available.filter((item) => item.category === "上衣");
   const bottoms = available.filter((item) => item.category === "下装");
   const shoes = available.filter((item) => item.category === "鞋子");
@@ -42,7 +44,8 @@ function buildOutfits(garments: Garment[], scene: string | null, styles: string[
     const pieces = [top, bottom, ...(outer ? [outer] : []), shoe];
     let score = 62;
     const warmth = pieces.reduce((sum, item) => sum + item.warmth, 0);
-    score += warmth >= 6 && warmth <= 9 ? 10 : warmth >= 4 && warmth <= 11 ? 5 : -4;
+    const warmthRange = constraints.warmth === "warmer" ? [7, 11] : constraints.warmth === "lighter" ? [3, 6] : [6, 9];
+    score += warmth >= warmthRange[0] && warmth <= warmthRange[1] ? 10 : warmth >= 4 && warmth <= 11 ? 4 : -5;
     const styleHits = pieces.reduce((sum, item) => sum + item.styleTags.filter((style) => styles.includes(style)).length, 0);
     score += Math.min(styleHits * 3, 12);
     if (scene) {
@@ -50,6 +53,9 @@ function buildOutfits(garments: Garment[], scene: string | null, styles: string[
       score += sceneHits === pieces.length ? 10 : sceneHits * 2;
     } else score += 5;
     if (pieces.some((item) => item.weatherTags.includes("小雨"))) score += 5;
+    if (constraints.formality === "formal") score += pieces.filter((item) => item.styleTags.includes("简约通勤")).length * 2;
+    if (constraints.formality === "casual") score += pieces.filter((item) => item.styleTags.includes("清爽休闲") || item.styleTags.includes("温柔松弛")).length * 2;
+    if (constraints.colors?.length) score += pieces.filter((item) => constraints.colors?.some((color) => item.colorName.includes(color))).length * 4;
     const neutralNames = new Set(["燕麦色", "浅蓝", "奶油白", "深灰", "牛仔蓝", "黑色", "米白", "灰色", "棕色"]);
     if (pieces.filter((item) => neutralNames.has(item.colorName)).length >= 3) score += 5;
     const itemIds = pieces.map((item) => item.id);
@@ -61,7 +67,7 @@ function buildOutfits(garments: Garment[], scene: string | null, styles: string[
       score: Math.min(score, 98),
       colors: pieces.map((item) => item.color),
       items: pieces.map((item) => item.name).join(" · "),
-      reason: `${outer ? `${outer.name}可以应对小雨和温差。` : "整体厚度适合今天 18—25℃ 的天气。"}${scene ? `这几件都能用于${scene}场景，` : "在没有指定场景时，"}并优先使用你偏爱的${styles[0] ?? "清爽"}风格。`,
+      reason: `${outer ? `${outer.name}可以应对小雨和温差。` : "整体厚度适合今天 18—25℃ 的天气。"}${scene ? `这几件都能用于${scene}场景，` : "在没有指定场景时，"}并优先使用你偏爱的${styles[0] ?? "清爽"}风格${constraints.avoid?.length ? `，已避开${constraints.avoid.join("、")}` : ""}。`,
       itemIds,
     });
   }
@@ -96,6 +102,11 @@ export default function Home() {
   const [styles, setStyles] = useState<string[]>(["简约通勤", "清爽休闲"]);
   const [garments, setGarments] = useState(initialGarments);
   const [catalogOpen, setCatalogOpen] = useState(false);
+  const [chatOpen, setChatOpen] = useState(false);
+  const [chatInput, setChatInput] = useState("");
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [activeRequest, setActiveRequest] = useState<string | null>(null);
+  const [requestConstraints, setRequestConstraints] = useState<RequestConstraints>({});
   const [wardrobeFilter, setWardrobeFilter] = useState("全部");
   const [uploadOpen, setUploadOpen] = useState(false);
   const [uploadPreview, setUploadPreview] = useState<string | null>(null);
@@ -114,7 +125,7 @@ export default function Home() {
     () => garments.filter((item) => wardrobeFilter === "全部" || (wardrobeFilter === "脏衣篓" ? item.dirty : item.category === wardrobeFilter)),
     [garments, wardrobeFilter],
   );
-  const generatedOutfits = useMemo(() => buildOutfits(garments, scene, styles), [garments, scene, styles]);
+  const generatedOutfits = useMemo(() => buildOutfits(garments, scene, styles, requestConstraints), [garments, scene, styles, requestConstraints]);
   const outfits = useMemo(() => [...generatedOutfits.slice(rotation), ...generatedOutfits.slice(0, rotation)], [generatedOutfits, rotation]);
 
   useEffect(() => {
@@ -123,7 +134,7 @@ export default function Home() {
         if (!response.ok) throw new Error("无法连接你的衣柜");
         return response.json();
       })
-      .then((data: { profile: { preferredStyles: string[]; lastScene: string | null; onboardingCompleted: boolean }; garments: Garment[]; feedback: FeedbackRecord[] }) => {
+      .then((data: { profile: { preferredStyles: string[]; lastScene: string | null; onboardingCompleted: boolean }; garments: Garment[]; feedback: FeedbackRecord[]; chat: { activeRequest: string | null; constraints: RequestConstraints; messages: ChatMessage[] } }) => {
         setGarments(data.garments);
         setStyles(data.profile.preferredStyles.length ? data.profile.preferredStyles : ["简约通勤", "清爽休闲"]);
         setScene(data.profile.lastScene);
@@ -131,6 +142,9 @@ export default function Home() {
         setLiked(data.feedback.filter((item) => item.action === "like").map((item) => item.outfitKey));
         setSaved(data.feedback.filter((item) => item.action === "save").map((item) => item.outfitKey));
         setWorn(data.feedback.filter((item) => item.action === "worn").map((item) => item.outfitKey));
+        setActiveRequest(data.chat.activeRequest);
+        setRequestConstraints(data.chat.constraints);
+        setChatMessages(data.chat.messages);
       })
       .catch(() => showToast("当前使用演示数据，稍后会自动重试"))
       .finally(() => setLoading(false));
@@ -150,13 +164,16 @@ export default function Home() {
     try {
       const response = await fetch("/api/state", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(action) });
       if (!response.ok) throw new Error("保存失败");
-      const data = await response.json() as { profile: { preferredStyles: string[]; lastScene: string | null }; garments: Garment[]; feedback: FeedbackRecord[] };
+      const data = await response.json() as { profile: { preferredStyles: string[]; lastScene: string | null }; garments: Garment[]; feedback: FeedbackRecord[]; chat: { activeRequest: string | null; constraints: RequestConstraints; messages: ChatMessage[] } };
       setGarments(data.garments);
       setStyles(data.profile.preferredStyles);
       setScene(data.profile.lastScene);
       setLiked(data.feedback.filter((item) => item.action === "like").map((item) => item.outfitKey));
       setSaved(data.feedback.filter((item) => item.action === "save").map((item) => item.outfitKey));
       setWorn(data.feedback.filter((item) => item.action === "worn").map((item) => item.outfitKey));
+      setActiveRequest(data.chat.activeRequest);
+      setRequestConstraints(data.chat.constraints);
+      setChatMessages(data.chat.messages);
       return true;
     } catch {
       if (!quiet) showToast("没有保存成功，请稍后重试");
@@ -206,6 +223,25 @@ export default function Home() {
   async function recordFeedback(outfitKey: string, feedbackAction: "like" | "save" | "dislike" | "worn") {
     const ok = await persist({ action: "feedback", outfitKey, feedbackAction });
     if (ok) showToast(feedbackAction === "worn" ? "已记录：今天穿这套" : feedbackAction === "dislike" ? "收到，下次会减少类似搭配" : "你的偏好已经保存");
+  }
+
+  async function sendText(rawMessage: string) {
+    const message = rawMessage.trim();
+    if (!message || saving) return;
+    setChatInput("");
+    setChatMessages((current) => [...current, { id: Date.now(), role: "user", content: message }]);
+    const ok = await persist({ action: "send_message", message });
+    if (!ok) setChatInput(message);
+  }
+
+  async function sendMessage(event?: FormEvent) {
+    event?.preventDefault();
+    await sendText(chatInput);
+  }
+
+  async function clearRequest() {
+    const ok = await persist({ action: "clear_request" });
+    if (ok) showToast("本次对话要求已清除");
   }
 
   function navTo(next: Tab) {
@@ -291,6 +327,15 @@ export default function Home() {
             <button className="scene-chip" onClick={() => showToast("以后可以用一句话描述自定义场景")}><span className="plus">＋</span><span>其他</span></button>
           </div>
 
+          <div className={`chat-request-card ${activeRequest ? "active" : ""}`}>
+            <button className="chat-request-main" onClick={() => setChatOpen(true)}>
+              <span className="assistant-mark">易</span>
+              <div><small>{activeRequest ? "易搭正在按你的要求推荐" : "不想选标签？直接告诉易搭"}</small><strong>{activeRequest ? `“${activeRequest}”` : "今晚见朋友，想舒服但有精神一点…"}</strong></div>
+              <b>›</b>
+            </button>
+            {activeRequest && <button className="request-clear" onClick={clearRequest}>清除要求</button>}
+          </div>
+
           <div className="recommendation-heading">
             <div><p className="eyebrow">{scene ? `已加入“${scene}”场景` : "天气 + 可用衣物 + 你的偏好"}</p><h2>今天为你搭好了</h2></div>
             <button className="refresh-button" onClick={() => { setRotation(generatedOutfits.length ? (rotation + 1) % generatedOutfits.length : 0); showToast("已根据当前衣柜重新排序"); }}>↻ 换一组</button>
@@ -372,10 +417,34 @@ export default function Home() {
       <nav className="bottom-nav" aria-label="主要导航">
         <button className={tab === "today" ? "active" : ""} onClick={() => navTo("today")}><span>⌂</span>今日</button>
         <button className={tab === "wardrobe" ? "active" : ""} onClick={() => navTo("wardrobe")}><span>▦</span>衣柜</button>
-        <button className="center-action" onClick={() => setUploadOpen(true)} aria-label="上传衣服"><span>＋</span></button>
+        <button className="center-action assistant-action" onClick={() => setChatOpen(true)} aria-label="打开易搭助手"><span>易</span><small>问易搭</small></button>
         <button className={tab === "discover" ? "active" : ""} onClick={() => navTo("discover")}><span>✦</span>发现</button>
         <button className={tab === "profile" ? "active" : ""} onClick={() => navTo("profile")}><span>○</span>我的</button>
       </nav>
+
+      {chatOpen && (
+        <div className="modal-backdrop chat-backdrop" role="presentation" onMouseDown={() => setChatOpen(false)}>
+          <section className="chat-modal" role="dialog" aria-modal="true" aria-labelledby="chat-title" onMouseDown={(event) => event.stopPropagation()}>
+            <div className="modal-handle" />
+            <header className="chat-header"><div className="assistant-mark">易</div><div><h2 id="chat-title">易搭穿搭助手</h2><p><span />在线 · 会结合天气和你的衣柜</p></div><button onClick={() => setChatOpen(false)} aria-label="关闭">×</button></header>
+            <div className="chat-messages">
+              <div className="message assistant"><span className="mini-assistant">易</span><p>告诉我你今天要去哪里、想穿成什么感觉，也可以直接说“不想穿什么”。</p></div>
+              {chatMessages.map((message) => <div key={`${message.id}-${message.createdAt ?? "now"}`} className={`message ${message.role}`}>
+                {message.role === "assistant" && <span className="mini-assistant">易</span>}<p>{message.content}</p>
+              </div>)}
+              {saving && <div className="message assistant thinking"><span className="mini-assistant">易</span><p><i /><i /><i /></p></div>}
+            </div>
+            <div className="quick-prompts">
+              {["今晚和朋友吃饭，不要太正式", "今天有点冷，想更保暖", "上班见客户，要利落一点", "今天不想穿裙子"].map((prompt) => <button key={prompt} onClick={() => sendText(prompt)}>{prompt}</button>)}
+            </div>
+            <form className="chat-input-row" onSubmit={sendMessage}>
+              <input value={chatInput} onChange={(event) => setChatInput(event.target.value)} placeholder="说说你今天想怎么穿…" maxLength={500} aria-label="输入穿搭需求" />
+              <button type="submit" disabled={!chatInput.trim() || saving} aria-label="发送">↑</button>
+            </form>
+            <p className="chat-capability-note">当前能理解场景、冷暖、正式度、颜色和不想穿的单品。</p>
+          </section>
+        </div>
+      )}
 
       {catalogOpen && (
         <div className="modal-backdrop" role="presentation" onMouseDown={() => setCatalogOpen(false)}>

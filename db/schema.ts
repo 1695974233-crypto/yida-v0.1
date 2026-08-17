@@ -41,3 +41,20 @@ export const feedback = sqliteTable("feedback", {
 }, (table) => [
   index("idx_feedback_user_created").on(table.userId, table.createdAt),
 ]);
+
+export const chatSessions = sqliteTable("chat_sessions", {
+  userId: text("user_id").primaryKey(),
+  activeRequest: text("active_request"),
+  constraints: text("constraints").notNull().default("{}"),
+  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+});
+
+export const chatMessages = sqliteTable("chat_messages", {
+  id: integer("id").primaryKey({ autoIncrement: true }),
+  userId: text("user_id").notNull(),
+  role: text("role").notNull(),
+  content: text("content").notNull(),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [
+  index("idx_chat_messages_user_created").on(table.userId, table.createdAt),
+]);
