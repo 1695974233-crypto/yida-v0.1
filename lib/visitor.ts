@@ -1,6 +1,22 @@
 import { getChatGPTUser } from "../app/chatgpt-auth";
 
 export type Visitor = { id: string; name: string };
+const visitorCookiePattern = /^visitor-[a-f0-9]{32}$/;
+
+function cookieValue(request: Request, name: string) {
+  const cookies = request.headers.get("cookie")?.split(";") ?? [];
+  for (const cookie of cookies) {
+    const [key, ...value] = cookie.trim().split("=");
+    if (key === name) return decodeURIComponent(value.join("="));
+  }
+  return null;
+}
+
+export function visitorCookie(visitor: Visitor) {
+  return visitorCookiePattern.test(visitor.id)
+    ? `yida_visitor=${encodeURIComponent(visitor.id)}; Path=/; Max-Age=31536000; HttpOnly; Secure; SameSite=Lax`
+    : null;
+}
 
 function bytesToHex(bytes: Uint8Array) {
   return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
@@ -14,6 +30,9 @@ export async function getVisitor(request: Request): Promise<Visitor> {
   if (url.hostname === "localhost" || url.hostname === "127.0.0.1") {
     return { id: "local-preview", name: "体验用户" };
   }
+
+  const savedVisitorId = cookieValue(request, "yida_visitor");
+  if (savedVisitorId && visitorCookiePattern.test(savedVisitorId)) return { id: savedVisitorId, name: "体验用户" };
 
   const ip = request.headers.get("cf-connecting-ip")
     ?? request.headers.get("x-forwarded-for")?.split(",")[0]?.trim()

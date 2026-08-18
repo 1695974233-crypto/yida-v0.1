@@ -2,7 +2,7 @@ import { and, desc, eq } from "drizzle-orm";
 import { env } from "cloudflare:workers";
 import { getDb } from "../../../db";
 import { chatMessages, chatSessions, feedback, garments, profiles } from "../../../db/schema";
-import { getVisitor } from "../../../lib/visitor";
+import { getVisitor, visitorCookie } from "../../../lib/visitor";
 import { defaultCatalogKeys, virtualCatalog } from "../../catalog";
 
 export const dynamic = "force-dynamic";
@@ -212,7 +212,10 @@ export async function GET(request: Request) {
   try {
     const user = await getVisitor(request);
     await ensureUser(user.id, user.name);
-    return Response.json(await stateFor(user.id));
+    const response = Response.json(await stateFor(user.id));
+    const cookie = visitorCookie(user);
+    if (cookie) response.headers.append("Set-Cookie", cookie);
+    return response;
   } catch (error) {
     console.error("state GET failed", error);
     return Response.json({ error: "衣柜加载失败" }, { status: 500 });
@@ -336,7 +339,10 @@ export async function POST(request: Request) {
       return Response.json({ error: "无法识别的操作" }, { status: 400 });
     }
 
-    return Response.json(await stateFor(user.id));
+    const response = Response.json(await stateFor(user.id));
+    const cookie = visitorCookie(user);
+    if (cookie) response.headers.append("Set-Cookie", cookie);
+    return response;
   } catch (error) {
     console.error("state POST failed", error);
     return Response.json({ error: "保存失败" }, { status: 500 });

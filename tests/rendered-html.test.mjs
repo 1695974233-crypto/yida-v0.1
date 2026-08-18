@@ -60,11 +60,12 @@ test("includes real weather and privacy-aware location", async () => {
 });
 
 test("switches to real wardrobe photos and supports Seedream mannequin previews", async () => {
-  const [page, visualizeRoute, arkAdapter, schema] = await Promise.all([
+  const [page, visualizeRoute, arkAdapter, schema, visitor] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/api/outfits/visualize/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../lib/ark.ts", import.meta.url), "utf8"),
     readFile(new URL("../db/schema.ts", import.meta.url), "utf8"),
+    readFile(new URL("../lib/visitor.ts", import.meta.url), "utf8"),
   ]);
   assert.match(page, /已切换为真实衣柜/);
   assert.match(page, /生成上身效果/);
@@ -73,6 +74,8 @@ test("switches to real wardrobe photos and supports Seedream mannequin previews"
   assert.match(arkAdapter, /visualizeOutfitWithSeedream/);
   assert.match(schema, /bodyHeight/);
   assert.match(schema, /visualizationUsage/);
+  assert.match(visitor, /yida_visitor/);
+  assert.match(visitor, /Max-Age=31536000/);
   await access(new URL("../drizzle/0006_jittery_skaar.sql", import.meta.url));
   await access(new URL("../drizzle/0007_exotic_whizzer.sql", import.meta.url));
 });
