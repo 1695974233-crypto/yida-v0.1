@@ -249,6 +249,7 @@ export default function Home() {
   const [weather, setWeather] = useState<WeatherData | null>(null);
   const [weatherCityInput, setWeatherCityInput] = useState("");
   const [weatherLoading, setWeatherLoading] = useState(false);
+  const [locationError, setLocationError] = useState("");
   const [chatInput, setChatInput] = useState("");
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [activeRequest, setActiveRequest] = useState<string | null>(null);
@@ -319,6 +320,7 @@ export default function Home() {
 
   async function loadWeather(location: WeatherLocation, saveLocation = true) {
     setWeatherLoading(true);
+    setLocationError("");
     try {
       const data = await fetchWeatherData(location);
       setWeather(data);
@@ -336,14 +338,28 @@ export default function Home() {
 
   function useCurrentLocation() {
     if (!navigator.geolocation) {
-      showToast("当前浏览器不支持定位，请手动输入城市");
+      const message = "当前浏览器不支持定位，请手动输入城市";
+      setLocationError(message);
+      showToast(message);
       return;
     }
     setWeatherLoading(true);
+    setLocationError("");
     navigator.geolocation.getCurrentPosition(
       (position) => { void loadWeather({ latitude: position.coords.latitude, longitude: position.coords.longitude, name: "当前位置" }); },
-      () => { setWeatherLoading(false); showToast("没有获得定位权限，请手动输入城市"); },
-      { enableHighAccuracy: false, timeout: 10_000, maximumAge: 30 * 60 * 1000 },
+      (error) => {
+        setWeatherLoading(false);
+        const message = error.code === error.PERMISSION_DENIED
+          ? "定位权限被拒绝。请在浏览器地址栏左侧的网站设置中，把“位置”改为“允许”，然后刷新页面。"
+          : error.code === error.POSITION_UNAVAILABLE
+            ? "设备暂时无法确定位置。请确认 macOS“系统设置 → 隐私与安全性 → 定位服务”已允许 Chrome 使用定位。"
+            : error.code === error.TIMEOUT
+              ? "定位请求超时。请检查网络后重试，或先手动输入城市。"
+              : "暂时无法获得位置，请检查浏览器与系统定位权限。";
+        setLocationError(message);
+        showToast(message);
+      },
+      { enableHighAccuracy: false, timeout: 15_000, maximumAge: 10 * 60 * 1000 },
     );
   }
 
@@ -745,6 +761,7 @@ export default function Home() {
             <div className="modal-heading"><div><p className="eyebrow">让推荐适合今天</p><h2 id="weather-title">设置天气位置</h2></div><button onClick={() => setWeatherOpen(false)} aria-label="关闭">×</button></div>
             <p className="weather-explanation">易搭会读取温度、体感、降雨和风速，只在你主动点击后申请定位。</p>
             <button className="location-button" disabled={weatherLoading} onClick={useCurrentLocation}><span>⌖</span><div><strong>{weatherLoading ? "正在获取天气…" : "使用我的当前位置"}</strong><small>只保存城市和小数点后两位的模糊坐标</small></div></button>
+            {locationError && <div className="location-help" role="alert"><strong>定位没有成功</strong><p>{locationError}</p><small>修改权限后需要刷新本页面再试；你也可以继续使用下方的城市输入。</small></div>}
             <div className="weather-divider"><span>或者手动选择</span></div>
             <form className="city-search" onSubmit={searchWeatherCity}><input value={weatherCityInput} onChange={(event) => setWeatherCityInput(event.target.value)} placeholder="输入城市，例如：上海" maxLength={40} aria-label="城市名称" /><button type="submit" disabled={weatherLoading || !weatherCityInput.trim()}>查询</button></form>
             <p className="weather-source">天气数据由 <a href="https://open-meteo.com/" target="_blank" rel="noreferrer">Open-Meteo</a> 提供；服务异常时仍可使用常规推荐。</p>
