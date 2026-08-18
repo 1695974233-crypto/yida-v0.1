@@ -32,7 +32,7 @@ type WeatherForecastResponse = {
   current?: { temperature_2m: number; apparent_temperature: number; precipitation: number; weather_code: number; wind_speed_10m: number };
   daily?: { temperature_2m_max?: number[]; temperature_2m_min?: number[]; precipitation_sum?: number[] };
 };
-type ProfileData = { preferredStyles: string[]; lastScene: string | null; onboardingCompleted?: boolean; weatherCity?: string | null; weatherLatitude?: number | null; weatherLongitude?: number | null };
+type ProfileData = { preferredStyles: string[]; lastScene: string | null; onboardingCompleted?: boolean; weatherCity?: string | null; weatherLatitude?: number | null; weatherLongitude?: number | null; bodyHeight?: number | null; bodyWeight?: number | null; bodyShape?: string | null; modelPresentation?: string | null };
 type GarmentDraft = {
   name: string;
   category: string;
@@ -250,6 +250,13 @@ export default function Home() {
   const [weatherCityInput, setWeatherCityInput] = useState("");
   const [weatherLoading, setWeatherLoading] = useState(false);
   const [locationError, setLocationError] = useState("");
+  const [bodyProfileOpen, setBodyProfileOpen] = useState(false);
+  const [bodyHeight, setBodyHeight] = useState("");
+  const [bodyWeight, setBodyWeight] = useState("");
+  const [bodyShape, setBodyShape] = useState("匀称");
+  const [modelPresentation, setModelPresentation] = useState("中性");
+  const [visualizingKey, setVisualizingKey] = useState<string | null>(null);
+  const [visualizedLooks, setVisualizedLooks] = useState<Record<string, string>>({});
   const [chatInput, setChatInput] = useState("");
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [activeRequest, setActiveRequest] = useState<string | null>(null);
@@ -277,12 +284,14 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
-  const availableCount = garments.filter((item) => !item.dirty).length;
+  const hasRealGarments = garments.some((item) => !item.isVirtual);
+  const recommendationGarments = useMemo(() => hasRealGarments ? garments.filter((item) => !item.isVirtual) : garments.filter((item) => item.isVirtual), [garments, hasRealGarments]);
+  const availableCount = recommendationGarments.filter((item) => !item.dirty).length;
   const filteredGarments = useMemo(
-    () => garments.filter((item) => wardrobeFilter === "全部" || (wardrobeFilter === "脏衣篓" ? item.dirty : item.category === wardrobeFilter)),
-    [garments, wardrobeFilter],
+    () => recommendationGarments.filter((item) => wardrobeFilter === "全部" || (wardrobeFilter === "脏衣篓" ? item.dirty : item.category === wardrobeFilter)),
+    [recommendationGarments, wardrobeFilter],
   );
-  const generatedOutfits = useMemo(() => buildOutfits(garments, scene, styles, requestConstraints, weather), [garments, scene, styles, requestConstraints, weather]);
+  const generatedOutfits = useMemo(() => buildOutfits(recommendationGarments, scene, styles, requestConstraints, weather), [recommendationGarments, scene, styles, requestConstraints, weather]);
   const outfits = useMemo(() => [...generatedOutfits.slice(rotation), ...generatedOutfits.slice(0, rotation)], [generatedOutfits, rotation]);
   const todayLabel = new Intl.DateTimeFormat("zh-CN", { month: "long", day: "numeric", weekday: "long", timeZone: "Asia/Shanghai" }).format(new Date());
 
@@ -303,6 +312,10 @@ export default function Home() {
         setActiveRequest(data.chat.activeRequest);
         setRequestConstraints(data.chat.constraints);
         setChatMessages(data.chat.messages);
+        setBodyHeight(data.profile.bodyHeight ? String(data.profile.bodyHeight) : "");
+        setBodyWeight(data.profile.bodyWeight ? String(data.profile.bodyWeight) : "");
+        setBodyShape(data.profile.bodyShape ?? "匀称");
+        setModelPresentation(data.profile.modelPresentation ?? "中性");
         if (typeof data.profile.weatherLatitude === "number" && typeof data.profile.weatherLongitude === "number") {
           void fetchWeatherData({ latitude: data.profile.weatherLatitude, longitude: data.profile.weatherLongitude, name: data.profile.weatherCity ?? "当前位置" })
             .then((savedWeather) => { setWeather(savedWeather); setWeatherCityInput(savedWeather.city.split(" · ")[0]); })
@@ -389,6 +402,10 @@ export default function Home() {
       setActiveRequest(data.chat.activeRequest);
       setRequestConstraints(data.chat.constraints);
       setChatMessages(data.chat.messages);
+      setBodyHeight(data.profile.bodyHeight ? String(data.profile.bodyHeight) : "");
+      setBodyWeight(data.profile.bodyWeight ? String(data.profile.bodyWeight) : "");
+      setBodyShape(data.profile.bodyShape ?? "匀称");
+      setModelPresentation(data.profile.modelPresentation ?? "中性");
       return true;
     } catch {
       if (!quiet) showToast("没有保存成功，请稍后重试");
@@ -400,6 +417,48 @@ export default function Home() {
     const ok = await persist({ action: "complete_onboarding", styles });
     setOnboarding(false);
     if (!ok) showToast("已先进入体验，个人偏好将在服务恢复后保存");
+  }
+
+  async function saveBodyProfile(event: FormEvent) {
+    event.preventDefault();
+    const height = Number(bodyHeight);
+    const weight = Number(bodyWeight);
+    if (!Number.isFinite(height) || height < 120 || height > 220 || !Number.isFinite(weight) || weight < 30 || weight > 200) {
+      showToast("请填写有效的身高和体重");
+      return;
+    }
+    const ok = await persist({ action: "update_body_profile", height, weight, bodyShape, modelPresentation });
+    if (ok) {
+      setBodyProfileOpen(false);
+      showToast("身体资料已保存，现在可以生成 AI 模特");
+    }
+  }
+
+  async function generateOutfitLook(outfit: Outfit) {
+    if (!bodyHeight || !bodyWeight) {
+      setBodyProfileOpen(true);
+      showToast("请先填写身体资料");
+      return;
+    }
+    setVisualizingKey(outfit.key);
+    try {
+      const response = await fetch("/api/outfits/visualize", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ itemIds: outfit.itemIds }),
+      });
+      const data = await response.json() as { error?: string; imageUrl?: string; needsProfile?: boolean; remaining?: number };
+      if (!response.ok || !data.imageUrl) {
+        if (data.needsProfile) setBodyProfileOpen(true);
+        throw new Error(data.error ?? "AI 模特生成失败");
+      }
+      setVisualizedLooks((current) => ({ ...current, [outfit.key]: data.imageUrl! }));
+      showToast(typeof data.remaining === "number" ? `AI 模特已生成，今天还可生成 ${data.remaining} 次` : "AI 模特已生成");
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "AI 模特生成失败");
+    } finally {
+      setVisualizingKey(null);
+    }
   }
 
   async function selectScene(nextScene: string | null) {
@@ -670,19 +729,31 @@ export default function Home() {
           </div>
 
           <div className="recommendation-heading">
-            <div><p className="eyebrow">{scene ? `已加入“${scene}”场景` : "天气 + 可用衣物 + 你的偏好"}</p><h2>今天为你搭好了</h2></div>
+            <div><p className="eyebrow">{hasRealGarments ? "仅使用你的真实衣柜" : scene ? `已加入“${scene}”场景` : "虚拟衣柜体验模式"}</p><h2>今天为你搭好了</h2></div>
             <button className="refresh-button" onClick={() => { setRotation(generatedOutfits.length ? (rotation + 1) % generatedOutfits.length : 0); showToast("已根据当前衣柜重新排序"); }}>↻ 换一组</button>
           </div>
 
           <div className="outfit-stack">
             {outfits.length ? outfits.map((outfit, index) => {
+              const outfitGarments = outfit.itemIds.map((id) => recommendationGarments.find((item) => item.id === id)).filter((item): item is Garment => Boolean(item));
               return (
                 <article className={`outfit-card outfit-${index + 1}`} key={outfit.key}>
-                  <div className="outfit-visual">
+                  <div className={`outfit-visual ${hasRealGarments ? "real-outfit-visual" : ""}`}>
                     <div className="match-label"><span>✦</span>{outfit.score}% 匹配</div>
-                    <div className="look-canvas">
-                      {outfit.colors.map((color, colorIndex) => <span key={`${color}-${colorIndex}`} className={`look-piece look-piece-${colorIndex + 1}`} style={{ background: color }} />)}
-                    </div>
+                    {hasRealGarments ? <div className="real-look-layout">
+                      <div className="real-piece-grid" aria-label="本套真实衣物">
+                        {outfitGarments.map((garment) => <div className="real-piece" key={garment.id}>{garment.image ? <img src={garment.image} alt={garment.name} /> : <GarmentArt garment={garment} compact />}<span>{garment.name}</span></div>)}
+                      </div>
+                      <div className="model-panel">
+                        {visualizedLooks[outfit.key] ? <img className="generated-model" src={visualizedLooks[outfit.key]} alt={`${outfit.title} AI 模特试穿效果`} /> : <>
+                          <div className="mannequin-placeholder" aria-hidden="true"><i className="mannequin-head" /><i className="mannequin-body" /><i className="mannequin-legs" /></div>
+                          <strong>{bodyHeight && bodyWeight ? `${bodyHeight}cm · ${bodyWeight}kg` : "你的专属假人模特"}</strong>
+                          <button disabled={visualizingKey === outfit.key} onClick={() => generateOutfitLook(outfit)}>{visualizingKey === outfit.key ? "正在生成…" : "生成上身效果"}</button>
+                        </>}
+                      </div>
+                    </div> : <div className="look-canvas">
+                        {outfit.colors.map((color, colorIndex) => <span key={`${color}-${colorIndex}`} className={`look-piece look-piece-${colorIndex + 1}`} style={{ background: color }} />)}
+                      </div>}
                     <button className={`save-float ${saved.includes(outfit.key) ? "active" : ""}`} onClick={() => recordFeedback(outfit.key, "save")} aria-label="收藏搭配">{saved.includes(outfit.key) ? "♥" : "♡"}</button>
                   </div>
                   <div className="outfit-content">
@@ -697,7 +768,7 @@ export default function Home() {
                   </div>
                 </article>
               );
-            }) : <div className="empty-state recommendation-empty"><span>▦</span><h3>还缺少搭配需要的衣服</h3><p>需要“上衣＋下装”或连衣裙，再搭配一双鞋。</p><button className="upload-button" onClick={() => setCatalogOpen(true)}>从虚拟衣柜添加</button></div>}
+            }) : <div className="empty-state recommendation-empty"><span>▦</span><h3>{hasRealGarments ? "真实衣柜还缺少可搭配的衣服" : "还缺少搭配需要的衣服"}</h3><p>需要“上衣＋下装”或连衣裙，再搭配一双鞋。</p><button className="upload-button" onClick={hasRealGarments ? openAddGarment : () => setCatalogOpen(true)}>{hasRealGarments ? "继续上传真实衣服" : "从虚拟衣柜添加"}</button></div>}
           </div>
         </section>
       )}
@@ -705,7 +776,7 @@ export default function Home() {
       {tab === "wardrobe" && (
         <section className="screen wardrobe-screen">
           <div className="page-title-row"><div><p className="eyebrow">你的数字衣橱</p><h1>我的衣柜</h1><p>{availableCount} 件可用 · {garments.length - availableCount} 件在脏衣篓</p></div><button className="upload-button" onClick={openAddGarment}>＋ 添加衣服</button></div>
-          <button className="virtual-closet-entry" onClick={() => setCatalogOpen(true)}><span>▦</span><div><strong>从虚拟衣柜添加基础款</strong><small>不用拍照，勾选“我有类似款”即可参与推荐</small></div><b>›</b></button>
+          {hasRealGarments ? <div className="real-wardrobe-notice"><span>✓</span><div><strong>已切换为真实衣柜</strong><small>虚拟单品已隐藏，不会再参与搭配推荐</small></div></div> : <button className="virtual-closet-entry" onClick={() => setCatalogOpen(true)}><span>▦</span><div><strong>从虚拟衣柜添加基础款</strong><small>首次体验使用；上传真实衣服后自动关闭</small></div><b>›</b></button>}
           <div className="wardrobe-summary">
             <div><span className="summary-icon">✦</span><div><strong>本周穿到 7 件</strong><small>比上周多激活 2 件旧衣服</small></div></div><span className="progress-ring">68%</span>
           </div>
@@ -741,9 +812,9 @@ export default function Home() {
       {tab === "profile" && (
         <section className="screen profile-screen">
           <div className="profile-hero"><div className="large-avatar">晚</div><div><h1>晚晚</h1><p>和易搭一起生活的第 12 天</p></div><button onClick={() => { setOnboarding(true); setOnboardingStep(0); }}>重新体验引导</button></div>
-          <div className="stat-grid"><div><strong>{garments.length}</strong><span>衣柜单品</span></div><div><strong>{saved.length}</strong><span>收藏搭配</span></div><div><strong>{worn.length + 7}</strong><span>本月已穿</span></div></div>
+          <div className="stat-grid"><div><strong>{recommendationGarments.length}</strong><span>{hasRealGarments ? "真实单品" : "体验单品"}</span></div><div><strong>{saved.length}</strong><span>收藏搭配</span></div><div><strong>{worn.length + 7}</strong><span>本月已穿</span></div></div>
           <section className="profile-section"><div className="section-heading"><div><p className="eyebrow">最近 30 天</p><h2>穿搭记录</h2></div><button className="clear-button">查看全部</button></div><div className="history-list"><div><span className="history-date">今天</span><div className="mini-palette"><i style={{ background: "#b8cbd4" }} /><i style={{ background: "#595b5c" }} /><i style={{ background: "#e7ddca" }} /></div><p>雨天也清爽</p><b>已穿 ✓</b></div><div><span className="history-date">周六</span><div className="mini-palette"><i style={{ background: "#d9c8ad" }} /><i style={{ background: "#66819b" }} /></div><p>舒服不费力</p><b>已收藏</b></div></div></section>
-          <section className="settings-list"><button><span>♡</span><div><strong>我的偏爱穿搭</strong><small>收藏与喜欢过的搭配</small></div><b>›</b></button><button><span>♨</span><div><strong>脏衣篓设置</strong><small>默认 3 天后恢复可用</small></div><b>›</b></button><button><span>◌</span><div><strong>个人偏好</strong><small>{styles.join("、")}</small></div><b>›</b></button><button><span>⌁</span><div><strong>隐私与数据</strong><small>定位、照片与删除设置</small></div><b>›</b></button></section>
+          <section className="settings-list"><button onClick={() => setBodyProfileOpen(true)}><span>♙</span><div><strong>AI 模特身体资料</strong><small>{bodyHeight && bodyWeight ? `${bodyHeight}cm · ${bodyWeight}kg · ${bodyShape}` : "填写身高、体重和身材特点"}</small></div><b>›</b></button><button><span>♡</span><div><strong>我的偏爱穿搭</strong><small>收藏与喜欢过的搭配</small></div><b>›</b></button><button><span>♨</span><div><strong>脏衣篓设置</strong><small>默认 3 天后恢复可用</small></div><b>›</b></button><button><span>◌</span><div><strong>个人偏好</strong><small>{styles.join("、")}</small></div><b>›</b></button><button><span>⌁</span><div><strong>隐私与数据</strong><small>定位、照片与删除设置</small></div><b>›</b></button></section>
         </section>
       )}
 
@@ -767,6 +838,20 @@ export default function Home() {
             <form className="city-search" onSubmit={searchWeatherCity}><input value={weatherCityInput} onChange={(event) => setWeatherCityInput(event.target.value)} placeholder="输入城市，例如：上海" maxLength={40} aria-label="城市名称" /><button type="submit" disabled={weatherLoading || !weatherCityInput.trim()}>查询</button></form>
             <p className="weather-source">天气数据由 <a href="https://open-meteo.com/" target="_blank" rel="noreferrer">Open-Meteo</a> 提供；服务异常时仍可使用常规推荐。</p>
           </div>
+        </div>
+      )}
+
+      {bodyProfileOpen && (
+        <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setBodyProfileOpen(false); }}>
+          <form className="upload-modal body-profile-modal" role="dialog" aria-modal="true" aria-labelledby="body-profile-title" onSubmit={saveBodyProfile}>
+            <div className="modal-handle" />
+            <div className="modal-heading"><div><p className="eyebrow">建立你的专属比例</p><h2 id="body-profile-title">AI 模特身体资料</h2></div><button type="button" onClick={() => setBodyProfileOpen(false)} aria-label="关闭">×</button></div>
+            <p className="body-profile-note">这些信息只用于控制假人模特的身体比例，不生成真实人脸。生成结果是搭配示意，不代表服装的精确尺码效果。</p>
+            <div className="form-row"><label>身高（cm）<input type="number" min="120" max="220" value={bodyHeight} onChange={(event) => setBodyHeight(event.target.value)} placeholder="例如 165" required /></label><label>体重（kg）<input type="number" min="30" max="200" value={bodyWeight} onChange={(event) => setBodyWeight(event.target.value)} placeholder="例如 55" required /></label></div>
+            <div className="form-row"><label>身材特点<select value={bodyShape} onChange={(event) => setBodyShape(event.target.value)}>{["匀称", "偏瘦", "肩宽", "梨形", "苹果形", "曲线型"].map((item) => <option key={item}>{item}</option>)}</select></label><label>模特呈现<select value={modelPresentation} onChange={(event) => setModelPresentation(event.target.value)}>{["中性", "女性", "男性"].map((item) => <option key={item}>{item}</option>)}</select></label></div>
+            <button className="primary-button" type="submit" disabled={saving}>保存身体资料</button>
+            <p className="body-profile-limit">AI 模特由 Seedream 生成，每位访客每天最多生成 3 套；相同搭配会直接使用已生成结果。</p>
+          </form>
         </div>
       )}
 

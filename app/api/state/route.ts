@@ -18,6 +18,10 @@ async function ensureSchema() {
       weather_city TEXT,
       weather_latitude REAL,
       weather_longitude REAL,
+      body_height INTEGER,
+      body_weight INTEGER,
+      body_shape TEXT,
+      model_presentation TEXT,
       onboarding_completed INTEGER DEFAULT false NOT NULL,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP NOT NULL,
       updated_at TEXT DEFAULT CURRENT_TIMESTAMP NOT NULL
@@ -76,6 +80,10 @@ async function ensureSchema() {
     ["weather_city", "ALTER TABLE profiles ADD COLUMN weather_city TEXT"],
     ["weather_latitude", "ALTER TABLE profiles ADD COLUMN weather_latitude REAL"],
     ["weather_longitude", "ALTER TABLE profiles ADD COLUMN weather_longitude REAL"],
+    ["body_height", "ALTER TABLE profiles ADD COLUMN body_height INTEGER"],
+    ["body_weight", "ALTER TABLE profiles ADD COLUMN body_weight INTEGER"],
+    ["body_shape", "ALTER TABLE profiles ADD COLUMN body_shape TEXT"],
+    ["model_presentation", "ALTER TABLE profiles ADD COLUMN model_presentation TEXT"],
   ];
   for (const [column, statement] of profileAdditions) {
     if (!existingProfileColumns.has(column)) await d1.prepare(statement).run();
@@ -181,6 +189,10 @@ async function stateFor(userId: string) {
       weatherCity: profile?.weatherCity ?? null,
       weatherLatitude: profile?.weatherLatitude ?? null,
       weatherLongitude: profile?.weatherLongitude ?? null,
+      bodyHeight: profile?.bodyHeight ?? null,
+      bodyWeight: profile?.bodyWeight ?? null,
+      bodyShape: profile?.bodyShape ?? null,
+      modelPresentation: profile?.modelPresentation ?? null,
     },
     garments: clothing.map((item) => ({
       ...item,
@@ -260,6 +272,21 @@ export async function POST(request: Request) {
       }).where(eq(profiles.userId, user.id));
     } else if (payload.action === "update_styles" && Array.isArray(payload.styles)) {
       await db.update(profiles).set({ preferredStyles: JSON.stringify(payload.styles), updatedAt: new Date().toISOString() }).where(eq(profiles.userId, user.id));
+    } else if (payload.action === "update_body_profile") {
+      const height = typeof payload.height === "number" ? Math.round(payload.height) : null;
+      const weight = typeof payload.weight === "number" ? Math.round(payload.weight) : null;
+      const allowedShapes = ["匀称", "偏瘦", "肩宽", "梨形", "苹果形", "曲线型"];
+      const allowedPresentations = ["女性", "男性", "中性"];
+      if (height === null || height < 120 || height > 220 || weight === null || weight < 30 || weight > 200) {
+        return Response.json({ error: "请填写有效的身高和体重" }, { status: 400 });
+      }
+      await db.update(profiles).set({
+        bodyHeight: height,
+        bodyWeight: weight,
+        bodyShape: typeof payload.bodyShape === "string" && allowedShapes.includes(payload.bodyShape) ? payload.bodyShape : "匀称",
+        modelPresentation: typeof payload.modelPresentation === "string" && allowedPresentations.includes(payload.modelPresentation) ? payload.modelPresentation : "中性",
+        updatedAt: new Date().toISOString(),
+      }).where(eq(profiles.userId, user.id));
     } else if (payload.action === "complete_onboarding") {
       await db.update(profiles).set({ onboardingCompleted: true, preferredStyles: Array.isArray(payload.styles) ? JSON.stringify(payload.styles) : undefined, updatedAt: new Date().toISOString() }).where(eq(profiles.userId, user.id));
     } else if (payload.action === "feedback" && typeof payload.outfitKey === "string" && typeof payload.feedbackAction === "string") {

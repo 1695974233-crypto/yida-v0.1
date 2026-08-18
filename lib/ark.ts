@@ -135,3 +135,36 @@ export async function enhanceGarmentWithSeedream(imageDataUrl: string, apiKey: s
   if (!encoded) throw new Error("Seedream 没有返回展示图");
   return decodeBase64(encoded);
 }
+
+export async function visualizeOutfitWithSeedream(
+  imageDataUrls: string[],
+  garmentNames: string[],
+  profile: { height: number; weight: number; bodyShape: string; presentation: string },
+  apiKey: string,
+  model = "doubao-seedream-5-0-260128",
+) {
+  const prompt = `你是易搭的虚拟试穿生成器。参考输入的每张真实衣物照片，把这些衣物组合穿在同一个无脸假人模特上。
+模特呈现：${profile.presentation}；身高约 ${profile.height}cm；体重约 ${profile.weight}kg；身材特点：${profile.bodyShape}。
+衣物清单：${garmentNames.join("、")}。
+必须忠实保留每件衣物的颜色、图案、领型、袖长、裤型或裙长、材质纹理，不得替换成相似款，不得增加未提供的外套或配饰。生成全身正面站立效果，米白纯色影棚背景，柔和均匀光线，像服装搭配软件中的高级假人模特；不生成真实人脸，不添加文字、水印或边框。`;
+  const response = await fetch(`${ARK_CHINA_BASE_URL}/images/generations`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model,
+      image: imageDataUrls,
+      prompt,
+      size: "2K",
+      output_format: "png",
+      response_format: "b64_json",
+      sequential_image_generation: "disabled",
+      watermark: false,
+    }),
+    signal: AbortSignal.timeout(120_000),
+  });
+  if (!response.ok) throw new Error(`AI 模特生成失败（${response.status}）`);
+  const body = await response.json() as { data?: Array<{ b64_json?: string }> };
+  const encoded = body.data?.[0]?.b64_json;
+  if (!encoded) throw new Error("Seedream 没有返回模特图片");
+  return decodeBase64(encoded);
+}

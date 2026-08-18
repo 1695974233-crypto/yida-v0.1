@@ -58,3 +58,21 @@ test("includes real weather and privacy-aware location", async () => {
   assert.match(schema, /weatherLatitude/);
   await access(new URL("../drizzle/0005_breezy_natasha_romanoff.sql", import.meta.url));
 });
+
+test("switches to real wardrobe photos and supports Seedream mannequin previews", async () => {
+  const [page, visualizeRoute, arkAdapter, schema] = await Promise.all([
+    readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/outfits/visualize/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../lib/ark.ts", import.meta.url), "utf8"),
+    readFile(new URL("../db/schema.ts", import.meta.url), "utf8"),
+  ]);
+  assert.match(page, /已切换为真实衣柜/);
+  assert.match(page, /生成上身效果/);
+  assert.match(page, /AI 模特身体资料/);
+  assert.match(visualizeRoute, /consumeVisualization/);
+  assert.match(arkAdapter, /visualizeOutfitWithSeedream/);
+  assert.match(schema, /bodyHeight/);
+  assert.match(schema, /visualizationUsage/);
+  await access(new URL("../drizzle/0006_jittery_skaar.sql", import.meta.url));
+  await access(new URL("../drizzle/0007_exotic_whizzer.sql", import.meta.url));
+});

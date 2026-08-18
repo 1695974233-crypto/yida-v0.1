@@ -9,6 +9,10 @@ export const profiles = sqliteTable("profiles", {
   weatherCity: text("weather_city"),
   weatherLatitude: real("weather_latitude"),
   weatherLongitude: real("weather_longitude"),
+  bodyHeight: integer("body_height"),
+  bodyWeight: integer("body_weight"),
+  bodyShape: text("body_shape"),
+  modelPresentation: text("model_presentation"),
   onboardingCompleted: integer("onboarding_completed", { mode: "boolean" }).notNull().default(false),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
   updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
@@ -69,6 +73,15 @@ export const chatMessages = sqliteTable("chat_messages", {
 ]);
 
 export const recognitionUsage = sqliteTable("recognition_usage", {
+  visitorId: text("visitor_id").notNull(),
+  usageDate: text("usage_date").notNull(),
+  count: integer("count").notNull().default(0),
+  updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [
+  primaryKey({ columns: [table.visitorId, table.usageDate] }),
+]);
+
+export const visualizationUsage = sqliteTable("visualization_usage", {
   visitorId: text("visitor_id").notNull(),
   usageDate: text("usage_date").notNull(),
   count: integer("count").notNull().default(0),

@@ -43,6 +43,20 @@
       "when": 1787040719854,
       "tag": "0005_breezy_natasha_romanoff",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1787044958254,
+      "tag": "0006_jittery_skaar",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1787044995290,
+      "tag": "0007_exotic_whizzer",
+      "breakpoints": true
     }
   ]
 }
