@@ -148,7 +148,7 @@ export default function Home() {
   const [processedImageKey, setProcessedImageKey] = useState<string | null>(null);
   const [recognitionProvider, setRecognitionProvider] = useState<string | null>(null);
   const [analyzing, setAnalyzing] = useState(false);
-  const [enhanceWithSeedream, setEnhanceWithSeedream] = useState(true);
+  const [enhanceWithSeedream, setEnhanceWithSeedream] = useState(false);
   const [aiReady, setAiReady] = useState<boolean | null>(null);
   const [newCategory, setNewCategory] = useState("上衣");
   const [newColor, setNewColor] = useState("米白");
@@ -570,7 +570,7 @@ export default function Home() {
               {uploadPreview ? <><img src={uploadPreview} alt="待上传衣服预览" />{analyzing && <span className="image-processing">AI 正在看这件衣服…</span>}</> : <><span>＋</span><strong>拍照或从相册选择</strong><small>尽量只拍一件，保持光线自然</small></>}
               <input type="file" accept="image/jpeg,image/png,image/webp" onChange={handleUpload} />
             </label>
-            <label className="seedream-option"><input type="checkbox" aria-label="用 Seedream 整理展示图" checked={enhanceWithSeedream} onChange={(event) => setEnhanceWithSeedream(event.target.checked)} /><span><strong>用 Seedream 整理展示图</strong><small>去除杂乱背景并平整展示；原图仍会保留</small></span></label>
+            <label className="seedream-option"><input type="checkbox" aria-label="用 Seedream 整理展示图" checked={enhanceWithSeedream} onChange={(event) => setEnhanceWithSeedream(event.target.checked)} /><span><strong>用 Seedream 整理展示图（可选）</strong><small>默认关闭；开启后会产生图片处理费用，用于去除杂乱背景并平整展示，原图仍会保留</small></span></label>
             <div className={`recognition-note ${aiReady === false ? "setup-needed" : ""}`}><span>✦</span><div><strong>{analyzing ? "正在识别衣物属性…" : imageKey ? (aiReady ? `识别完成 · ${garmentDraft.confidence}% 可信` : "演示识别 · 等待配置模型密钥") : "上传后自动识别类型、颜色、材质和适用场景"}</strong>{garmentDraft.warnings.length > 0 && <small>{garmentDraft.warnings.join(" ")}</small>}</div></div>
             {uploadFile && !analyzing && <button className="reanalyze-button" onClick={() => analyzeSelectedFile()}>↻ 按当前设置重新识别{enhanceWithSeedream ? "并整理图片" : ""}</button>}
             <div className="single-form-row"><label>衣服名称<input value={garmentDraft.name} onChange={(event) => setGarmentDraft((current) => ({ ...current, name: event.target.value }))} placeholder="例如：浅蓝牛津纺衬衫" maxLength={30} /></label></div>
