@@ -40,6 +40,19 @@ type GarmentDraft = {
   warnings: string[];
 };
 
+const garmentSceneGroups = [
+  { label: "工作学习", options: ["上班", "商务", "上课"] },
+  { label: "社交生活", options: ["约会", "聚会", "逛街", "正式活动"] },
+  { label: "日常出行", options: ["休闲", "运动", "旅行", "户外", "居家"] },
+] as const;
+
+const relatedScenes: Record<string, string[]> = {
+  上班: ["上班", "商务", "上课"],
+  约会: ["约会", "聚会", "逛街"],
+  休闲: ["休闲", "聚会", "逛街", "旅行", "户外", "居家"],
+  运动: ["运动", "户外"],
+};
+
 const initialGarments: Garment[] = defaultCatalogKeys.map((key, index) => {
   const item = virtualCatalog.find((entry) => entry.key === key)!;
   return { id: index + 1, catalogKey: key, ...item, isVirtual: true, dirty: key === "pink-skirt" };
@@ -64,7 +77,8 @@ function buildOutfits(garments: Garment[], scene: string | null, styles: string[
     const styleHits = pieces.reduce((sum, item) => sum + item.styleTags.filter((style) => styles.includes(style)).length, 0);
     score += Math.min(styleHits * 3, 12);
     if (scene) {
-      const sceneHits = pieces.filter((item) => item.sceneTags.includes(scene)).length;
+      const compatibleScenes = relatedScenes[scene] ?? [scene];
+      const sceneHits = pieces.filter((item) => item.sceneTags.some((tag) => compatibleScenes.includes(tag))).length;
       score += sceneHits === pieces.length ? 10 : sceneHits * 2;
     } else score += 5;
     if (pieces.some((item) => item.weatherTags.includes("小雨"))) score += 5;
@@ -548,7 +562,7 @@ export default function Home() {
                 <article className={`garment-card ${garment.dirty ? "dirty" : ""}`} key={garment.id}>
                   <GarmentArt garment={garment} />
                   {garment.dirty && <span className="dirty-badge">清洗中</span>}
-                  <div className="garment-copy"><small>{garment.category} · {garment.colorName}</small><h3>{garment.name}</h3><p>{garment.meta}</p><div className="scene-tags" aria-label="适用场景">{(garment.sceneTags.length ? garment.sceneTags : ["日常"]).slice(0, 4).map((tag) => <span key={tag}>{tag}</span>)}</div><div className="garment-actions"><button onClick={() => toggleDirty(garment.id)}>{garment.dirty ? "恢复可用" : "放入脏衣篓"}</button><button onClick={() => openEditGarment(garment)}>编辑</button><button className="danger" onClick={() => deleteGarment(garment)}>删除</button></div></div>
+                  <div className="garment-copy"><small>{garment.category} · {garment.colorName}</small><h3>{garment.name}</h3><p>{garment.meta}</p><div className="scene-tags" aria-label="适用场景">{(garment.sceneTags.length ? garment.sceneTags : ["日常"]).slice(0, 3).map((tag) => <span key={tag}>{tag}</span>)}{garment.sceneTags.length > 3 && <span>+{garment.sceneTags.length - 3}</span>}</div><div className="garment-actions"><button onClick={() => toggleDirty(garment.id)}>{garment.dirty ? "恢复可用" : "放入脏衣篓"}</button><button onClick={() => openEditGarment(garment)}>编辑</button><button className="danger" onClick={() => deleteGarment(garment)}>删除</button></div></div>
                 </article>
               ))}
             </div>
@@ -643,7 +657,10 @@ export default function Home() {
             <div className="single-form-row"><label>衣服名称<input value={garmentDraft.name} onChange={(event) => setGarmentDraft((current) => ({ ...current, name: event.target.value }))} placeholder="例如：浅蓝牛津纺衬衫" maxLength={30} /></label></div>
             <div className="form-row"><label>衣服类型<select value={newCategory} onChange={(event) => { setNewCategory(event.target.value); setGarmentDraft((current) => ({ ...current, category: event.target.value })); }}><option>上衣</option><option>下装</option><option>外套</option><option>连衣裙</option><option>鞋子</option><option>配饰</option></select></label><label>主要颜色<select value={newColor} onChange={(event) => { setNewColor(event.target.value); setGarmentDraft((current) => ({ ...current, colorName: event.target.value })); }}>{Array.from(new Set([newColor, "米白", "白色", "黑色", "灰色", "蓝色", "棕色", "粉色", "红色", "绿色", "其他"])).map((color) => <option key={color}>{color}</option>)}</select></label></div>
             <div className="form-row"><label>材质<input value={garmentDraft.material} onChange={(event) => setGarmentDraft((current) => ({ ...current, material: event.target.value }))} maxLength={20} /></label><label>图案<input value={garmentDraft.pattern} onChange={(event) => setGarmentDraft((current) => ({ ...current, pattern: event.target.value }))} maxLength={20} /></label></div>
-            <fieldset className="scene-selector"><legend>适用场景（可多选）</legend><div>{scenes.map((sceneName) => <button type="button" key={sceneName} className={garmentDraft.sceneTags.includes(sceneName) ? "selected" : ""} onClick={() => toggleGarmentScene(sceneName)}>{garmentDraft.sceneTags.includes(sceneName) ? "✓ " : ""}{sceneName}</button>)}</div></fieldset>
+            <details className="scene-multiselect">
+              <summary><span><small>适用场景（可多选）</small><strong>{garmentDraft.sceneTags.length ? garmentDraft.sceneTags.join("、") : "请选择至少一个场景"}</strong></span><b>⌄</b></summary>
+              <div className="scene-dropdown">{garmentSceneGroups.map((group) => <section key={group.label}><h4>{group.label}</h4><div>{group.options.map((sceneName) => <button type="button" key={sceneName} className={garmentDraft.sceneTags.includes(sceneName) ? "selected" : ""} onClick={() => toggleGarmentScene(sceneName)}>{garmentDraft.sceneTags.includes(sceneName) ? "✓ " : ""}{sceneName}</button>)}</div></section>)}</div>
+            </details>
             <p className="confirmation-hint">AI 识别可能出错，请确认后再保存。展示图不会替代原始照片。</p>
             <button className="primary-button" disabled={saving || analyzing || !garmentDraft.name.trim() || !garmentDraft.sceneTags.length} onClick={saveGarment}>{saving ? "正在保存…" : analyzing ? "正在识别…" : editingGarmentId === null ? "确认信息，加入衣柜" : "保存修改"}</button>
           </div>

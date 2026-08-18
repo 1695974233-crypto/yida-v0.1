@@ -52,7 +52,7 @@ function normalizeAnalysis(raw: Record<string, unknown>): GarmentAnalysis {
     pattern: typeof raw.pattern === "string" ? raw.pattern.trim().slice(0, 20) : "纯色",
     warmth: clamp(Number.isFinite(Number(raw.warmth)) ? Math.round(Number(raw.warmth)) : 2, 1, 5),
     styleTags: stringList(raw.styleTags, ["简约通勤", "温柔松弛", "清爽休闲", "法式复古", "街头感"]),
-    sceneTags: stringList(raw.sceneTags, ["上班", "约会", "休闲", "运动"]),
+    sceneTags: stringList(raw.sceneTags, ["上班", "商务", "上课", "约会", "聚会", "逛街", "正式活动", "休闲", "运动", "旅行", "户外", "居家"]),
     weatherTags: stringList(raw.weatherTags, ["炎热", "常规", "微凉", "寒冷", "小雨"]),
     confidence: clamp(Number.isFinite(confidenceValue) ? Math.round(confidenceValue) : 70, 0, 100),
     warnings: stringList(raw.warnings),
@@ -84,7 +84,7 @@ export function fallbackGarmentAnalysis(fileName: string): GarmentAnalysis {
 const ARK_CHINA_BASE_URL = "https://ark.cn-beijing.volces.com/api/v3";
 
 export async function analyzeGarmentWithArk(imageDataUrl: string, apiKey: string, model = "doubao-seed-2-0-lite-260215") {
-  const prompt = `你是易搭的衣物录入助手。只分析图片里最主要的一件衣物，不要猜测看不清的细节。\n请仅输出一个 JSON 对象，字段如下：\nname: 简短中文名称；category: 只能是上衣/下装/外套/连衣裙/鞋子/配饰；colorName: 主要颜色中文；colorHex: 近似十六进制颜色；material: 材质，不确定写待确认；pattern: 图案；warmth: 1到5整数；styleTags: 从简约通勤/温柔松弛/清爽休闲/法式复古/街头感选择；sceneTags: 从上班/约会/休闲/运动选择；weatherTags: 从炎热/常规/微凉/寒冷/小雨选择；confidence: 0到100；warnings: 图片质量或识别不确定项数组。`;
+  const prompt = `你是易搭的衣物录入助手。只分析图片里最主要的一件衣物，不要猜测看不清的细节。\n请仅输出一个 JSON 对象，字段如下：\nname: 简短中文名称；category: 只能是上衣/下装/外套/连衣裙/鞋子/配饰；colorName: 主要颜色中文；colorHex: 近似十六进制颜色；material: 材质，不确定写待确认；pattern: 图案；warmth: 1到5整数；styleTags: 从简约通勤/温柔松弛/清爽休闲/法式复古/街头感选择；sceneTags: 从上班/商务/上课/约会/聚会/逛街/正式活动/休闲/运动/旅行/户外/居家选择最合适的1到5项；weatherTags: 从炎热/常规/微凉/寒冷/小雨选择；confidence: 0到100；warnings: 图片质量或识别不确定项数组。`;
   const response = await fetch(`${ARK_CHINA_BASE_URL}/chat/completions`, {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
