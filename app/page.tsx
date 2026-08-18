@@ -41,13 +41,13 @@ type GarmentDraft = {
 };
 
 const garmentSceneGroups = [
-  { label: "工作学习", options: ["上班", "商务", "上课"] },
+  { label: "工作学习", options: ["上班", "商务", "开会", "上课"] },
   { label: "社交生活", options: ["约会", "聚会", "逛街", "正式活动"] },
   { label: "日常出行", options: ["休闲", "运动", "旅行", "户外", "居家"] },
 ] as const;
 
 const relatedScenes: Record<string, string[]> = {
-  上班: ["上班", "商务", "上课"],
+  上班: ["上班", "商务", "开会", "上课"],
   约会: ["约会", "聚会", "逛街"],
   休闲: ["休闲", "聚会", "逛街", "旅行", "户外", "居家"],
   运动: ["运动", "户外"],
