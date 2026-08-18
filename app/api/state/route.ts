@@ -157,7 +157,9 @@ async function ensureUser(userId: string, displayName: string) {
   const existing = await db.select({ id: garments.id }).from(garments).where(eq(garments.userId, userId)).limit(1);
   if (!existing.length) {
     const seed = defaultCatalogKeys.map((key) => catalogValues(userId, key)).filter(Boolean) as NonNullable<ReturnType<typeof catalogValues>>[];
-    await db.insert(garments).values(seed).onConflictDoNothing();
+    // D1 limits the number of bound parameters in one statement. Inserting all
+    // catalog garments at once exceeds that limit as garment metadata grows.
+    for (const item of seed) await db.insert(garments).values(item).onConflictDoNothing();
     await db.update(garments).set({ dirtyUntil: new Date(Date.now() + 3 * 86400000).toISOString() }).where(and(eq(garments.userId, userId), eq(garments.catalogKey, "pink-skirt")));
   }
 }
@@ -200,7 +202,8 @@ export async function GET(request: Request) {
     await ensureUser(user.id, user.name);
     return Response.json(await stateFor(user.id));
   } catch (error) {
-    return Response.json({ error: error instanceof Error ? error.message : "衣柜加载失败" }, { status: 500 });
+    console.error("state GET failed", error);
+    return Response.json({ error: "衣柜加载失败" }, { status: 500 });
   }
 }
 
@@ -308,6 +311,7 @@ export async function POST(request: Request) {
 
     return Response.json(await stateFor(user.id));
   } catch (error) {
-    return Response.json({ error: error instanceof Error ? error.message : "保存失败" }, { status: 500 });
+    console.error("state POST failed", error);
+    return Response.json({ error: "保存失败" }, { status: 500 });
   }
 }

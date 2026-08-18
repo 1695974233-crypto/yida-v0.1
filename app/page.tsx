@@ -398,7 +398,8 @@ export default function Home() {
 
   async function completeOnboarding() {
     const ok = await persist({ action: "complete_onboarding", styles });
-    if (ok) setOnboarding(false);
+    setOnboarding(false);
+    if (!ok) showToast("已先进入体验，个人偏好将在服务恢复后保存");
   }
 
   async function selectScene(nextScene: string | null) {
