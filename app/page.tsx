@@ -27,6 +27,11 @@ type RequestConstraints = { scene?: string; warmth?: "warmer" | "lighter"; forma
 type ChatMessage = { id: number; role: "user" | "assistant"; content: string; createdAt?: string };
 type WeatherData = { city: string; latitude: number; longitude: number; temperature: number; apparentTemperature: number; precipitation: number; windSpeed: number; weatherCode: number; temperatureMax: number; temperatureMin: number; condition: string; icon: string };
 type WeatherLocation = { latitude?: number; longitude?: number; name?: string; city?: string };
+type WeatherGeocodingResponse = { results?: Array<{ name: string; latitude: number; longitude: number; admin1?: string }> };
+type WeatherForecastResponse = {
+  current?: { temperature_2m: number; apparent_temperature: number; precipitation: number; weather_code: number; wind_speed_10m: number };
+  daily?: { temperature_2m_max?: number[]; temperature_2m_min?: number[]; precipitation_sum?: number[] };
+};
 type ProfileData = { preferredStyles: string[]; lastScene: string | null; onboardingCompleted?: boolean; weatherCity?: string | null; weatherLatitude?: number | null; weatherLongitude?: number | null };
 type GarmentDraft = {
   name: string;
@@ -124,16 +129,81 @@ function buildOutfits(garments: Garment[], scene: string | null, styles: string[
 const scenes = ["上班", "约会", "休闲", "运动"];
 const styleChoices = ["简约通勤", "温柔松弛", "清爽休闲", "法式复古", "街头感"];
 
+function describeWeather(code: number) {
+  if (code === 0) return { condition: "晴", icon: "☀️" };
+  if (code <= 3) return { condition: code === 1 ? "大致晴朗" : "多云", icon: "⛅" };
+  if (code === 45 || code === 48) return { condition: "有雾", icon: "🌫️" };
+  if ((code >= 51 && code <= 67) || (code >= 80 && code <= 82)) return { condition: "有雨", icon: "🌧️" };
+  if ((code >= 71 && code <= 77) || code === 85 || code === 86) return { condition: "有雪", icon: "🌨️" };
+  if (code >= 95) return { condition: "雷雨", icon: "⛈️" };
+  return { condition: "天气变化", icon: "🌤️" };
+}
+
+async function fetchWeatherDirectly(location: WeatherLocation): Promise<WeatherData> {
+  let latitude = location.latitude;
+  let longitude = location.longitude;
+  let city = location.name?.trim() || "当前位置";
+
+  if (location.city) {
+    const geoUrl = new URL("https://geocoding-api.open-meteo.com/v1/search");
+    geoUrl.searchParams.set("name", location.city.trim().slice(0, 40));
+    geoUrl.searchParams.set("count", "1");
+    geoUrl.searchParams.set("language", "zh");
+    geoUrl.searchParams.set("format", "json");
+    const geoResponse = await fetch(geoUrl, { signal: AbortSignal.timeout(10_000) });
+    if (!geoResponse.ok) throw new Error("城市查询暂时不可用");
+    const match = ((await geoResponse.json()) as WeatherGeocodingResponse).results?.[0];
+    if (!match) throw new Error("没有找到这个城市，请换一个名称");
+    latitude = match.latitude;
+    longitude = match.longitude;
+    city = [match.name, match.admin1].filter(Boolean).join(" · ");
+  }
+
+  if (typeof latitude !== "number" || typeof longitude !== "number") throw new Error("请提供当前位置或城市名称");
+  latitude = Number(latitude.toFixed(2));
+  longitude = Number(longitude.toFixed(2));
+  const weatherUrl = new URL("https://api.open-meteo.com/v1/forecast");
+  weatherUrl.searchParams.set("latitude", String(latitude));
+  weatherUrl.searchParams.set("longitude", String(longitude));
+  weatherUrl.searchParams.set("current", "temperature_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m");
+  weatherUrl.searchParams.set("daily", "temperature_2m_max,temperature_2m_min,precipitation_sum");
+  weatherUrl.searchParams.set("forecast_days", "1");
+  weatherUrl.searchParams.set("timezone", "auto");
+  const weatherResponse = await fetch(weatherUrl, { signal: AbortSignal.timeout(12_000) });
+  if (!weatherResponse.ok) throw new Error("天气服务暂时不可用");
+  const forecast = (await weatherResponse.json()) as WeatherForecastResponse;
+  if (!forecast.current) throw new Error("天气数据暂时不完整");
+
+  return {
+    city,
+    latitude,
+    longitude,
+    temperature: Math.round(forecast.current.temperature_2m),
+    apparentTemperature: Math.round(forecast.current.apparent_temperature),
+    precipitation: Math.max(forecast.current.precipitation, forecast.daily?.precipitation_sum?.[0] ?? 0),
+    windSpeed: Math.round(forecast.current.wind_speed_10m),
+    weatherCode: forecast.current.weather_code,
+    temperatureMax: Math.round(forecast.daily?.temperature_2m_max?.[0] ?? forecast.current.temperature_2m),
+    temperatureMin: Math.round(forecast.daily?.temperature_2m_min?.[0] ?? forecast.current.temperature_2m),
+    ...describeWeather(forecast.current.weather_code),
+  };
+}
+
 async function fetchWeatherData(location: WeatherLocation) {
   const query = new URLSearchParams();
   if (location.city) query.set("city", location.city);
   if (typeof location.latitude === "number") query.set("latitude", String(location.latitude));
   if (typeof location.longitude === "number") query.set("longitude", String(location.longitude));
   if (location.name) query.set("name", location.name);
-  const response = await fetch(`/api/weather?${query.toString()}`, { cache: "no-store" });
-  const data = await response.json() as WeatherData & { error?: string };
-  if (!response.ok || data.error) throw new Error(data.error ?? "天气获取失败");
-  return data;
+  try {
+    const response = await fetch(`/api/weather?${query.toString()}`, { cache: "no-store" });
+    const data = await response.json() as WeatherData & { error?: string };
+    if (response.ok && !data.error) return data;
+    if (response.status < 500) throw new Error(data.error ?? "天气获取失败");
+  } catch (error) {
+    if (error instanceof Error && (error.message.includes("没有找到") || error.message.includes("请提供"))) throw error;
+  }
+  return fetchWeatherDirectly(location);
 }
 
 async function prepareUploadImage(file: File) {
