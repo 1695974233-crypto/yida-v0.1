@@ -150,6 +150,7 @@ export default function Home() {
   const [analyzing, setAnalyzing] = useState(false);
   const [enhanceWithSeedream, setEnhanceWithSeedream] = useState(false);
   const [aiReady, setAiReady] = useState<boolean | null>(null);
+  const [recognitionsRemaining, setRecognitionsRemaining] = useState<number | null>(null);
   const [newCategory, setNewCategory] = useState("上衣");
   const [newColor, setNewColor] = useState("米白");
   const [garmentDraft, setGarmentDraft] = useState<GarmentDraft>({ name: "", category: "上衣", colorName: "米白", colorHex: "#eeeae2", material: "待确认", pattern: "纯色", warmth: 2, styleTags: [], sceneTags: ["上班", "约会", "休闲"], weatherTags: ["常规"], confidence: 0, warnings: [] });
@@ -266,7 +267,7 @@ export default function Home() {
       form.append("image", file);
       form.append("enhance", String(enhanceWithSeedream));
       const response = await fetch("/api/garments/analyze", { method: "POST", body: form });
-      const data = await response.json() as { error?: string; analysis?: GarmentDraft; imageKey?: string; processedImageKey?: string | null; imageUrl?: string; recognitionProvider?: string; aiReady?: boolean };
+      const data = await response.json() as { error?: string; analysis?: GarmentDraft; imageKey?: string; processedImageKey?: string | null; imageUrl?: string; recognitionProvider?: string; aiReady?: boolean; recognitionsRemaining?: number };
       if (!response.ok || !data.analysis || !data.imageKey) throw new Error(data.error ?? "没有获得识别结果");
       setGarmentDraft(data.analysis);
       setNewCategory(data.analysis.category);
@@ -275,6 +276,7 @@ export default function Home() {
       setProcessedImageKey(data.processedImageKey ?? null);
       setRecognitionProvider(data.recognitionProvider ?? null);
       setAiReady(Boolean(data.aiReady));
+      setRecognitionsRemaining(typeof data.recognitionsRemaining === "number" ? data.recognitionsRemaining : null);
       if (data.imageUrl) setUploadPreview(data.imageUrl);
     } catch (error) {
       showToast(error instanceof Error ? error.message : "图片识别失败，请稍后重试");
@@ -571,7 +573,7 @@ export default function Home() {
               <input type="file" accept="image/jpeg,image/png,image/webp" onChange={handleUpload} />
             </label>
             <label className="seedream-option"><input type="checkbox" aria-label="用 Seedream 整理展示图" checked={enhanceWithSeedream} onChange={(event) => setEnhanceWithSeedream(event.target.checked)} /><span><strong>用 Seedream 整理展示图（可选）</strong><small>默认关闭；开启后会产生图片处理费用，用于去除杂乱背景并平整展示，原图仍会保留</small></span></label>
-            <div className={`recognition-note ${aiReady === false ? "setup-needed" : ""}`}><span>✦</span><div><strong>{analyzing ? "正在识别衣物属性…" : imageKey ? (aiReady ? `识别完成 · ${garmentDraft.confidence}% 可信` : "演示识别 · 等待配置模型密钥") : "上传后自动识别类型、颜色、材质和适用场景"}</strong>{garmentDraft.warnings.length > 0 && <small>{garmentDraft.warnings.join(" ")}</small>}</div></div>
+            <div className={`recognition-note ${aiReady === false ? "setup-needed" : ""}`}><span>✦</span><div><strong>{analyzing ? "正在识别衣物属性…" : imageKey ? (aiReady ? `识别完成 · ${garmentDraft.confidence}% 可信` : "演示识别 · 等待配置模型密钥") : "上传后自动识别类型、颜色、材质和适用场景"}</strong>{garmentDraft.warnings.length > 0 && <small>{garmentDraft.warnings.join(" ")}</small>}{recognitionsRemaining !== null && <small>今日还可识别 {recognitionsRemaining} 次</small>}</div></div>
             {uploadFile && !analyzing && <button className="reanalyze-button" onClick={() => analyzeSelectedFile()}>↻ 按当前设置重新识别{enhanceWithSeedream ? "并整理图片" : ""}</button>}
             <div className="single-form-row"><label>衣服名称<input value={garmentDraft.name} onChange={(event) => setGarmentDraft((current) => ({ ...current, name: event.target.value }))} placeholder="例如：浅蓝牛津纺衬衫" maxLength={30} /></label></div>
             <div className="form-row"><label>衣服类型<select value={newCategory} onChange={(event) => { setNewCategory(event.target.value); setGarmentDraft((current) => ({ ...current, category: event.target.value })); }}><option>上衣</option><option>下装</option><option>外套</option><option>连衣裙</option><option>鞋子</option><option>配饰</option></select></label><label>主要颜色<select value={newColor} onChange={(event) => { setNewColor(event.target.value); setGarmentDraft((current) => ({ ...current, colorName: event.target.value })); }}>{Array.from(new Set([newColor, "米白", "白色", "黑色", "灰色", "蓝色", "棕色", "粉色", "红色", "绿色", "其他"])).map((color) => <option key={color}>{color}</option>)}</select></label></div>

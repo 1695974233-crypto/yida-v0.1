@@ -29,6 +29,13 @@
       "when": 1787024492415,
       "tag": "0003_chubby_sprite",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1787036276600,
+      "tag": "0004_good_vindicator",
+      "breakpoints": true
     }
   ]
 }

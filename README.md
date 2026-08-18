@@ -47,6 +47,7 @@
 - Seed 2.0 Lite 衣物属性识别适配：名称、类型、颜色、材质、图案、保暖度和场景。
 - Seedream 5.0 Lite 展示图整理适配：去杂乱背景、平整展示并保留原图。
 - AI 结果确认与手动修改后再加入衣柜。
+- 公开体验期每位访客每天最多识别 10 次，按北京时间每日重置。
 - 模型未配置或调用失败时的安全回退。
 
 ## v0.1 尚未实现
@@ -124,7 +125,7 @@ npm run db:generate
 - Cloudflare D1 + SQLite
 - Cloudflare R2 私有图片存储
 - Drizzle ORM
-- OpenAI Sites 私密部署
+- OpenAI Sites 公开体验部署
 - 火山方舟中国区模型适配
 
 真实天气和大模型自由对话将在后续版本接入。

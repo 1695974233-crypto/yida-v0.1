@@ -2,7 +2,7 @@ import { and, desc, eq } from "drizzle-orm";
 import { env } from "cloudflare:workers";
 import { getDb } from "../../../db";
 import { chatMessages, chatSessions, feedback, garments, profiles } from "../../../db/schema";
-import { getChatGPTUser } from "../../chatgpt-auth";
+import { getVisitor } from "../../../lib/visitor";
 import { defaultCatalogKeys, virtualCatalog } from "../../catalog";
 
 export const dynamic = "force-dynamic";
@@ -117,14 +117,6 @@ function assistantReply(constraints: RequestConstraints, availableCount: number)
   return `明白，今天按“${understood.join(" + ")}”来搭。我已经从 ${availableCount} 件可用衣服里重新筛选，推荐马上更新。`;
 }
 
-async function currentUser(request: Request) {
-  const user = await getChatGPTUser();
-  if (user) return { id: user.userId, name: user.fullName ?? "晚晚" };
-  const hostname = new URL(request.url).hostname;
-  if (hostname === "localhost" || hostname === "127.0.0.1") return { id: "local-preview", name: "晚晚" };
-  return null;
-}
-
 function catalogValues(userId: string, key: string) {
   const item = virtualCatalog.find((entry) => entry.key === key);
   if (!item) return null;
@@ -183,8 +175,7 @@ async function stateFor(userId: string) {
 
 export async function GET(request: Request) {
   try {
-    const user = await currentUser(request);
-    if (!user) return Response.json({ error: "请先登录后使用衣柜" }, { status: 401 });
+    const user = await getVisitor(request);
     await ensureUser(user.id, user.name);
     return Response.json(await stateFor(user.id));
   } catch (error) {
@@ -194,8 +185,7 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const user = await currentUser(request);
-    if (!user) return Response.json({ error: "请先登录后使用衣柜" }, { status: 401 });
+    const user = await getVisitor(request);
     await ensureUser(user.id, user.name);
     const payload = await request.json() as Record<string, unknown>;
     const db = getDb();

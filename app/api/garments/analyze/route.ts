@@ -1,6 +1,7 @@
 import { env } from "cloudflare:workers";
 import { analyzeGarmentWithArk, enhanceGarmentWithSeedream, fallbackGarmentAnalysis } from "../../../../lib/ark";
-import { getChatGPTUser } from "../../../chatgpt-auth";
+import { consumeRecognition } from "../../../../lib/recognition-limit";
+import { getVisitor } from "../../../../lib/visitor";
 
 export const dynamic = "force-dynamic";
 
@@ -10,13 +11,6 @@ type RuntimeEnv = {
   ARK_VISION_MODEL?: string;
   ARK_SEEDREAM_MODEL?: string;
 };
-
-async function currentUser(request: Request) {
-  const user = await getChatGPTUser();
-  if (user) return user.userId;
-  const hostname = new URL(request.url).hostname;
-  return hostname === "localhost" || hostname === "127.0.0.1" ? "local-preview" : null;
-}
 
 function extensionFor(type: string) {
   return type === "image/png" ? "png" : type === "image/webp" ? "webp" : "jpg";
@@ -33,8 +27,8 @@ function toDataUrl(bytes: Uint8Array, type: string) {
 
 export async function POST(request: Request) {
   try {
-    const userId = await currentUser(request);
-    if (!userId) return Response.json({ error: "请先登录后上传衣服" }, { status: 401 });
+    const visitor = await getVisitor(request);
+    const userId = visitor.id;
     const runtime = env as unknown as RuntimeEnv;
     if (!runtime.GARMENT_IMAGES) return Response.json({ error: "图片存储尚未启用" }, { status: 503 });
 
@@ -44,6 +38,15 @@ export async function POST(request: Request) {
     if (!(file instanceof File)) return Response.json({ error: "请选择一张衣物照片" }, { status: 400 });
     if (!new Set(["image/jpeg", "image/png", "image/webp"]).has(file.type)) return Response.json({ error: "目前支持 JPG、PNG 或 WebP 图片" }, { status: 415 });
     if (file.size > 900 * 1024) return Response.json({ error: "图片处理后仍然过大，请重新选择" }, { status: 413 });
+
+    const usage = runtime.ARK_API_KEY ? await consumeRecognition(userId) : { allowed: true as const, limit: 10, remaining: 10 };
+    if (!usage.allowed) {
+      return Response.json({
+        error: "今天的 10 次衣物识别额度已用完，请明天再试",
+        limit: usage.limit,
+        remaining: usage.remaining,
+      }, { status: 429 });
+    }
 
     const bytes = new Uint8Array(await file.arrayBuffer());
     const id = crypto.randomUUID();
@@ -88,6 +91,8 @@ export async function POST(request: Request) {
       recognitionProvider,
       enhancerProvider: processedKey ? (runtime.ARK_SEEDREAM_MODEL ?? "doubao-seedream-5-0-260128") : null,
       aiReady: Boolean(runtime.ARK_API_KEY),
+      recognitionLimit: usage.limit,
+      recognitionsRemaining: usage.remaining,
     });
   } catch (error) {
     return Response.json({ error: error instanceof Error ? error.message : "图片处理失败" }, { status: 500 });
