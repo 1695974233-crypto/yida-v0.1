@@ -25,6 +25,20 @@ type FeedbackRecord = { outfitKey: string; action: string };
 type Outfit = { key: string; title: string; tag: string; score: number; colors: string[]; items: string; reason: string; itemIds: number[] };
 type RequestConstraints = { scene?: string; warmth?: "warmer" | "lighter"; formality?: "formal" | "casual"; avoid?: string[]; colors?: string[] };
 type ChatMessage = { id: number; role: "user" | "assistant"; content: string; createdAt?: string };
+type GarmentDraft = {
+  name: string;
+  category: string;
+  colorName: string;
+  colorHex: string;
+  material: string;
+  pattern: string;
+  warmth: number;
+  styleTags: string[];
+  sceneTags: string[];
+  weatherTags: string[];
+  confidence: number;
+  warnings: string[];
+};
 
 const initialGarments: Garment[] = defaultCatalogKeys.map((key, index) => {
   const item = virtualCatalog.find((entry) => entry.key === key)!;
@@ -83,6 +97,25 @@ function buildOutfits(garments: Garment[], scene: string | null, styles: string[
 const scenes = ["上班", "约会", "休闲", "运动"];
 const styleChoices = ["简约通勤", "温柔松弛", "清爽休闲", "法式复古", "街头感"];
 
+async function prepareUploadImage(file: File) {
+  if (file.size <= 700 * 1024) return file;
+  const bitmap = await createImageBitmap(file);
+  let scale = Math.min(1, 1400 / Math.max(bitmap.width, bitmap.height));
+  let output: Blob | null = null;
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(300, Math.round(bitmap.width * scale));
+    canvas.height = Math.max(300, Math.round(bitmap.height * scale));
+    canvas.getContext("2d")?.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    output = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.82 - attempt * 0.08));
+    if (output && output.size <= 800 * 1024) break;
+    scale *= 0.78;
+  }
+  bitmap.close();
+  if (!output) throw new Error("图片压缩失败，请换一张照片");
+  return new File([output], file.name.replace(/\.[^.]+$/, "") + ".jpg", { type: "image/jpeg" });
+}
+
 function GarmentArt({ garment, compact = false }: { garment: Garment; compact?: boolean }) {
   if (garment.image) {
     return <img className="garment-photo" src={garment.image} alt={garment.name} />;
@@ -110,8 +143,16 @@ export default function Home() {
   const [wardrobeFilter, setWardrobeFilter] = useState("全部");
   const [uploadOpen, setUploadOpen] = useState(false);
   const [uploadPreview, setUploadPreview] = useState<string | null>(null);
+  const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [imageKey, setImageKey] = useState<string | null>(null);
+  const [processedImageKey, setProcessedImageKey] = useState<string | null>(null);
+  const [recognitionProvider, setRecognitionProvider] = useState<string | null>(null);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [enhanceWithSeedream, setEnhanceWithSeedream] = useState(true);
+  const [aiReady, setAiReady] = useState<boolean | null>(null);
   const [newCategory, setNewCategory] = useState("上衣");
   const [newColor, setNewColor] = useState("米白");
+  const [garmentDraft, setGarmentDraft] = useState<GarmentDraft>({ name: "", category: "上衣", colorName: "米白", colorHex: "#eeeae2", material: "待确认", pattern: "纯色", warmth: 2, styleTags: [], sceneTags: ["上班", "约会", "休闲"], weatherTags: ["常规"], confidence: 0, warnings: [] });
   const [liked, setLiked] = useState<string[]>([]);
   const [saved, setSaved] = useState<string[]>([]);
   const [worn, setWorn] = useState<string[]>([]);
@@ -198,19 +239,77 @@ export default function Home() {
     if (ok) showToast(item?.dirty ? "已恢复到可用衣柜" : "已放入脏衣篓，3 天内不再推荐");
   }
 
-  function handleUpload(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
-    if (file) setUploadPreview(URL.createObjectURL(file));
+  async function handleUpload(event: ChangeEvent<HTMLInputElement>) {
+    const selected = event.target.files?.[0];
+    if (!selected) return;
+    if (selected.size > 8 * 1024 * 1024) {
+      showToast("图片不能超过 8MB");
+      return;
+    }
+    try {
+      const file = await prepareUploadImage(selected);
+      setUploadFile(file);
+      setUploadPreview(URL.createObjectURL(file));
+      await analyzeSelectedFile(file);
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "图片读取失败");
+    }
+  }
+
+  async function analyzeSelectedFile(file = uploadFile) {
+    if (!file || analyzing) return;
+    setAnalyzing(true);
+    setImageKey(null);
+    setProcessedImageKey(null);
+    try {
+      const form = new FormData();
+      form.append("image", file);
+      form.append("enhance", String(enhanceWithSeedream));
+      const response = await fetch("/api/garments/analyze", { method: "POST", body: form });
+      const data = await response.json() as { error?: string; analysis?: GarmentDraft; imageKey?: string; processedImageKey?: string | null; imageUrl?: string; recognitionProvider?: string; aiReady?: boolean };
+      if (!response.ok || !data.analysis || !data.imageKey) throw new Error(data.error ?? "没有获得识别结果");
+      setGarmentDraft(data.analysis);
+      setNewCategory(data.analysis.category);
+      setNewColor(data.analysis.colorName);
+      setImageKey(data.imageKey);
+      setProcessedImageKey(data.processedImageKey ?? null);
+      setRecognitionProvider(data.recognitionProvider ?? null);
+      setAiReady(Boolean(data.aiReady));
+      if (data.imageUrl) setUploadPreview(data.imageUrl);
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "图片识别失败，请稍后重试");
+    } finally {
+      setAnalyzing(false);
+    }
   }
 
   async function saveGarment() {
     const colorMap: Record<string, string> = { 米白: "#eeeae2", 黑色: "#292927", 灰色: "#858681", 蓝色: "#66819b", 棕色: "#745b48", 其他: "#d8d0c2" };
-    const ok = await persist({ action: "add_garment", name: `${newColor}${newCategory}`, category: newCategory, color: colorMap[newColor], colorName: newColor });
+    const ok = await persist({
+      action: "add_garment",
+      name: garmentDraft.name.trim() || `${newColor}${newCategory}`,
+      category: newCategory,
+      color: garmentDraft.colorHex || colorMap[newColor] || colorMap.其他,
+      colorName: newColor,
+      material: garmentDraft.material,
+      pattern: garmentDraft.pattern,
+      warmth: garmentDraft.warmth,
+      styleTags: garmentDraft.styleTags,
+      sceneTags: garmentDraft.sceneTags,
+      weatherTags: garmentDraft.weatherTags,
+      imageKey,
+      processedImageKey,
+      recognitionProvider,
+      recognitionConfidence: garmentDraft.confidence,
+    });
     if (ok) {
       setUploadOpen(false);
       setUploadPreview(null);
+      setUploadFile(null);
+      setImageKey(null);
+      setProcessedImageKey(null);
       setTab("wardrobe");
-      showToast("衣服信息已保存；照片云端保存将在下一阶段接入");
+      showToast("衣服照片和你确认的信息已保存");
     }
   }
 
@@ -423,8 +522,8 @@ export default function Home() {
       </nav>
 
       {chatOpen && (
-        <div className="modal-backdrop chat-backdrop" role="presentation" onMouseDown={() => setChatOpen(false)}>
-          <section className="chat-modal" role="dialog" aria-modal="true" aria-labelledby="chat-title" onMouseDown={(event) => event.stopPropagation()}>
+        <div className="modal-backdrop chat-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setChatOpen(false); }}>
+          <div className="chat-modal" role="dialog" aria-modal="true" aria-labelledby="chat-title">
             <div className="modal-handle" />
             <header className="chat-header"><div className="assistant-mark">易</div><div><h2 id="chat-title">易搭穿搭助手</h2><p><span />在线 · 会结合天气和你的衣柜</p></div><button onClick={() => setChatOpen(false)} aria-label="关闭">×</button></header>
             <div className="chat-messages">
@@ -442,13 +541,13 @@ export default function Home() {
               <button type="submit" disabled={!chatInput.trim() || saving} aria-label="发送">↑</button>
             </form>
             <p className="chat-capability-note">当前能理解场景、冷暖、正式度、颜色和不想穿的单品。</p>
-          </section>
+          </div>
         </div>
       )}
 
       {catalogOpen && (
-        <div className="modal-backdrop" role="presentation" onMouseDown={() => setCatalogOpen(false)}>
-          <section className="upload-modal catalog-modal" role="dialog" aria-modal="true" aria-labelledby="catalog-title" onMouseDown={(event) => event.stopPropagation()}>
+        <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setCatalogOpen(false); }}>
+          <div className="upload-modal catalog-modal" role="dialog" aria-modal="true" aria-labelledby="catalog-title">
             <div className="modal-handle" />
             <div className="modal-heading"><div><p className="eyebrow">降低第一次使用门槛</p><h2 id="catalog-title">我有这些基础款</h2><p>选择相似单品，它们会马上参与今日推荐。</p></div><button onClick={() => setCatalogOpen(false)} aria-label="关闭">×</button></div>
             <div className="catalog-grid">
@@ -459,22 +558,27 @@ export default function Home() {
               })}
             </div>
             <button className="primary-button" onClick={() => setCatalogOpen(false)}>完成，看看新的推荐</button>
-          </section>
+          </div>
         </div>
       )}
 
       {uploadOpen && (
-        <div className="modal-backdrop" role="presentation" onMouseDown={() => setUploadOpen(false)}>
-          <section className="upload-modal" role="dialog" aria-modal="true" aria-labelledby="upload-title" onMouseDown={(event) => event.stopPropagation()}>
+        <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setUploadOpen(false); }}>
+          <div className="upload-modal" role="dialog" aria-modal="true" aria-labelledby="upload-title">
             <div className="modal-handle" /><div className="modal-heading"><div><p className="eyebrow">放进你的数字衣柜</p><h2 id="upload-title">添加一件衣服</h2></div><button onClick={() => setUploadOpen(false)} aria-label="关闭">×</button></div>
             <label className={`upload-zone ${uploadPreview ? "has-image" : ""}`}>
-              {uploadPreview ? <img src={uploadPreview} alt="待上传衣服预览" /> : <><span>＋</span><strong>拍照或从相册选择</strong><small>尽量平铺，保持光线自然</small></>}
-              <input type="file" accept="image/*" onChange={handleUpload} />
+              {uploadPreview ? <><img src={uploadPreview} alt="待上传衣服预览" />{analyzing && <span className="image-processing">AI 正在看这件衣服…</span>}</> : <><span>＋</span><strong>拍照或从相册选择</strong><small>尽量只拍一件，保持光线自然</small></>}
+              <input type="file" accept="image/jpeg,image/png,image/webp" onChange={handleUpload} />
             </label>
-            <p className="recognition-note"><span>✦</span>第二阶段会保存衣服信息；照片云端保存、自动抠图和识别将在第三阶段接入。</p>
-            <div className="form-row"><label>衣服类型<select value={newCategory} onChange={(event) => setNewCategory(event.target.value)}><option>上衣</option><option>下装</option><option>外套</option><option>连衣裙</option><option>鞋子</option></select></label><label>主要颜色<select value={newColor} onChange={(event) => setNewColor(event.target.value)}><option>米白</option><option>黑色</option><option>灰色</option><option>蓝色</option><option>棕色</option><option>其他</option></select></label></div>
-            <button className="primary-button" disabled={saving} onClick={saveGarment}>{saving ? "正在保存…" : "确认加入衣柜"}</button>
-          </section>
+            <label className="seedream-option"><input type="checkbox" aria-label="用 Seedream 整理展示图" checked={enhanceWithSeedream} onChange={(event) => setEnhanceWithSeedream(event.target.checked)} /><span><strong>用 Seedream 整理展示图</strong><small>去除杂乱背景并平整展示；原图仍会保留</small></span></label>
+            <div className={`recognition-note ${aiReady === false ? "setup-needed" : ""}`}><span>✦</span><div><strong>{analyzing ? "正在识别衣物属性…" : imageKey ? (aiReady ? `识别完成 · ${garmentDraft.confidence}% 可信` : "演示识别 · 等待配置模型密钥") : "上传后自动识别类型、颜色、材质和适用场景"}</strong>{garmentDraft.warnings.length > 0 && <small>{garmentDraft.warnings.join(" ")}</small>}</div></div>
+            {uploadFile && !analyzing && <button className="reanalyze-button" onClick={() => analyzeSelectedFile()}>↻ 按当前设置重新识别{enhanceWithSeedream ? "并整理图片" : ""}</button>}
+            <div className="single-form-row"><label>衣服名称<input value={garmentDraft.name} onChange={(event) => setGarmentDraft((current) => ({ ...current, name: event.target.value }))} placeholder="例如：浅蓝牛津纺衬衫" maxLength={30} /></label></div>
+            <div className="form-row"><label>衣服类型<select value={newCategory} onChange={(event) => { setNewCategory(event.target.value); setGarmentDraft((current) => ({ ...current, category: event.target.value })); }}><option>上衣</option><option>下装</option><option>外套</option><option>连衣裙</option><option>鞋子</option><option>配饰</option></select></label><label>主要颜色<select value={newColor} onChange={(event) => { setNewColor(event.target.value); setGarmentDraft((current) => ({ ...current, colorName: event.target.value })); }}>{Array.from(new Set([newColor, "米白", "白色", "黑色", "灰色", "蓝色", "棕色", "粉色", "红色", "绿色", "其他"])).map((color) => <option key={color}>{color}</option>)}</select></label></div>
+            <div className="form-row"><label>材质<input value={garmentDraft.material} onChange={(event) => setGarmentDraft((current) => ({ ...current, material: event.target.value }))} maxLength={20} /></label><label>图案<input value={garmentDraft.pattern} onChange={(event) => setGarmentDraft((current) => ({ ...current, pattern: event.target.value }))} maxLength={20} /></label></div>
+            <p className="confirmation-hint">AI 识别可能出错，请确认后再保存。展示图不会替代原始照片。</p>
+            <button className="primary-button" disabled={saving || analyzing || !garmentDraft.name.trim()} onClick={saveGarment}>{saving ? "正在保存…" : analyzing ? "正在识别…" : "确认信息，加入衣柜"}</button>
+          </div>
         </div>
       )}
       {toast && <div className="toast" role="status">✓ {toast}</div>}

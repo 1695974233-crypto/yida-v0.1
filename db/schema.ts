@@ -25,6 +25,12 @@ export const garments = sqliteTable("garments", {
   sceneTags: text("scene_tags").notNull().default("[]"),
   weatherTags: text("weather_tags").notNull().default("[]"),
   isVirtual: integer("is_virtual", { mode: "boolean" }).notNull().default(true),
+  imageKey: text("image_key"),
+  processedImageKey: text("processed_image_key"),
+  recognitionStatus: text("recognition_status").notNull().default("manual"),
+  recognitionConfidence: integer("recognition_confidence").notNull().default(0),
+  recognitionProvider: text("recognition_provider"),
+  recognizedAt: text("recognized_at"),
   dirtyUntil: text("dirty_until"),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
 }, (table) => [

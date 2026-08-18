@@ -33,6 +33,12 @@ async function ensureSchema() {
       scene_tags TEXT DEFAULT '[]' NOT NULL,
       weather_tags TEXT DEFAULT '[]' NOT NULL,
       is_virtual INTEGER DEFAULT true NOT NULL,
+      image_key TEXT,
+      processed_image_key TEXT,
+      recognition_status TEXT DEFAULT 'manual' NOT NULL,
+      recognition_confidence INTEGER DEFAULT 0 NOT NULL,
+      recognition_provider TEXT,
+      recognized_at TEXT,
       dirty_until TEXT,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP NOT NULL
     )`),
@@ -61,6 +67,19 @@ async function ensureSchema() {
     d1.prepare("CREATE INDEX IF NOT EXISTS idx_feedback_user_created ON feedback(user_id, created_at)"),
     d1.prepare("CREATE INDEX IF NOT EXISTS idx_chat_messages_user_created ON chat_messages(user_id, created_at)"),
   ]);
+  const garmentColumns = await d1.prepare("PRAGMA table_info(garments)").all<{ name: string }>();
+  const existingColumns = new Set(garmentColumns.results.map((column) => column.name));
+  const additions: Array<[string, string]> = [
+    ["image_key", "ALTER TABLE garments ADD COLUMN image_key TEXT"],
+    ["processed_image_key", "ALTER TABLE garments ADD COLUMN processed_image_key TEXT"],
+    ["recognition_status", "ALTER TABLE garments ADD COLUMN recognition_status TEXT DEFAULT 'manual' NOT NULL"],
+    ["recognition_confidence", "ALTER TABLE garments ADD COLUMN recognition_confidence INTEGER DEFAULT 0 NOT NULL"],
+    ["recognition_provider", "ALTER TABLE garments ADD COLUMN recognition_provider TEXT"],
+    ["recognized_at", "ALTER TABLE garments ADD COLUMN recognized_at TEXT"],
+  ];
+  for (const [column, statement] of additions) {
+    if (!existingColumns.has(column)) await d1.prepare(statement).run();
+  }
   await d1.prepare("PRAGMA optimize").run();
 }
 
@@ -148,7 +167,14 @@ async function stateFor(userId: string) {
   const now = new Date().toISOString();
   return {
     profile: { displayName: profile?.displayName ?? "晚晚", preferredStyles: parseList(profile?.preferredStyles ?? "[]"), lastScene: profile?.lastScene ?? null, onboardingCompleted: Boolean(profile?.onboardingCompleted) },
-    garments: clothing.map((item) => ({ ...item, dirty: Boolean(item.dirtyUntil && item.dirtyUntil > now), styleTags: parseList(item.styleTags), sceneTags: parseList(item.sceneTags), weatherTags: parseList(item.weatherTags) })),
+    garments: clothing.map((item) => ({
+      ...item,
+      image: item.processedImageKey || item.imageKey ? `/api/garments/image?key=${encodeURIComponent(item.processedImageKey ?? item.imageKey ?? "")}` : undefined,
+      dirty: Boolean(item.dirtyUntil && item.dirtyUntil > now),
+      styleTags: parseList(item.styleTags),
+      sceneTags: parseList(item.sceneTags),
+      weatherTags: parseList(item.weatherTags),
+    })),
     feedback: actions,
     chat: { activeRequest: chatSession?.activeRequest ?? null, constraints: JSON.parse(chatSession?.constraints ?? "{}") as RequestConstraints, messages },
     catalog: virtualCatalog,
@@ -206,7 +232,31 @@ export async function POST(request: Request) {
     } else if (payload.action === "clear_request") {
       await db.update(chatSessions).set({ activeRequest: null, constraints: "{}", updatedAt: new Date().toISOString() }).where(eq(chatSessions.userId, user.id));
     } else if (payload.action === "add_garment" && typeof payload.name === "string" && typeof payload.category === "string") {
-      await db.insert(garments).values({ userId: user.id, catalogKey: null, name: payload.name, category: payload.category, color: typeof payload.color === "string" ? payload.color : "#d8d0c2", colorName: typeof payload.colorName === "string" ? payload.colorName : "其他", meta: "手动添加 · 信息可修改", warmth: 2, styleTags: JSON.stringify([]), sceneTags: JSON.stringify(["上班", "约会", "休闲"]), weatherTags: JSON.stringify(["常规"]), isVirtual: false });
+      const imageKey = typeof payload.imageKey === "string" && payload.imageKey.startsWith(`${user.id}/`) ? payload.imageKey : null;
+      const processedImageKey = typeof payload.processedImageKey === "string" && payload.processedImageKey.startsWith(`${user.id}/`) ? payload.processedImageKey : null;
+      const material = typeof payload.material === "string" ? payload.material.slice(0, 20) : "待确认";
+      const pattern = typeof payload.pattern === "string" ? payload.pattern.slice(0, 20) : "待确认";
+      const recognitionProvider = typeof payload.recognitionProvider === "string" ? payload.recognitionProvider.slice(0, 80) : null;
+      await db.insert(garments).values({
+        userId: user.id,
+        catalogKey: null,
+        name: payload.name.slice(0, 30),
+        category: payload.category.slice(0, 12),
+        color: typeof payload.color === "string" ? payload.color : "#d8d0c2",
+        colorName: typeof payload.colorName === "string" ? payload.colorName.slice(0, 12) : "其他",
+        meta: `${material} · ${pattern} · 已确认`,
+        warmth: typeof payload.warmth === "number" ? Math.min(5, Math.max(1, Math.round(payload.warmth))) : 2,
+        styleTags: JSON.stringify(Array.isArray(payload.styleTags) ? payload.styleTags.slice(0, 5) : []),
+        sceneTags: JSON.stringify(Array.isArray(payload.sceneTags) ? payload.sceneTags.slice(0, 5) : ["上班", "约会", "休闲"]),
+        weatherTags: JSON.stringify(Array.isArray(payload.weatherTags) ? payload.weatherTags.slice(0, 5) : ["常规"]),
+        isVirtual: false,
+        imageKey,
+        processedImageKey,
+        recognitionStatus: recognitionProvider && recognitionProvider !== "manual-fallback" ? "confirmed_ai" : "confirmed_manual",
+        recognitionConfidence: typeof payload.recognitionConfidence === "number" ? Math.min(100, Math.max(0, Math.round(payload.recognitionConfidence))) : 0,
+        recognitionProvider,
+        recognizedAt: new Date().toISOString(),
+      });
     } else {
       return Response.json({ error: "无法识别的操作" }, { status: 400 });
     }
