@@ -142,8 +142,14 @@ export async function visualizeOutfitWithSeedream(
   profile: { height: number; weight: number; bodyShape: string; presentation: string },
   apiKey: string,
   model = "doubao-seedream-5-0-260128",
+  personReferenceDataUrl?: string,
 ) {
-  const prompt = `你是易搭的虚拟试穿生成器。参考输入的每张真实衣物照片，把这些衣物组合穿在同一个无脸假人模特上。
+  const prompt = personReferenceDataUrl
+    ? `你是易搭的真人虚拟试穿生成器。第一张输入图是用户本人自愿上传的全身参考照，其余图片是用户真实衣物。让参考照中的同一个人穿上所有衣物，保留其体型、姿态和人物身份特征，不改变衣物设计。
+用户资料：${profile.presentation}；身高约 ${profile.height}cm；体重约 ${profile.weight}kg；身材特点：${profile.bodyShape}。
+衣物清单：${garmentNames.join("、")}。
+必须忠实保留每件衣物的颜色、图案、领型、袖长、裤型或裙长和材质纹理，不得替换成相似款，不得增加未提供的外套或配饰。生成全身正面自然站立的穿搭效果，米白纯色影棚背景，柔和均匀光线，不添加文字、水印或边框。`
+    : `你是易搭的虚拟试穿生成器。参考输入的每张真实衣物照片，把这些衣物组合穿在同一个无脸假人模特上。
 模特呈现：${profile.presentation}；身高约 ${profile.height}cm；体重约 ${profile.weight}kg；身材特点：${profile.bodyShape}。
 衣物清单：${garmentNames.join("、")}。
 必须忠实保留每件衣物的颜色、图案、领型、袖长、裤型或裙长、材质纹理，不得替换成相似款，不得增加未提供的外套或配饰。生成全身正面站立效果，米白纯色影棚背景，柔和均匀光线，像服装搭配软件中的高级假人模特；不生成真实人脸，不添加文字、水印或边框。`;
@@ -152,7 +158,7 @@ export async function visualizeOutfitWithSeedream(
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
     body: JSON.stringify({
       model,
-      image: imageDataUrls,
+      image: personReferenceDataUrl ? [personReferenceDataUrl, ...imageDataUrls] : imageDataUrls,
       prompt,
       size: "2K",
       output_format: "png",

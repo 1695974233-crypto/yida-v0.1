@@ -1,6 +1,6 @@
 "use client";
 
-import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from "react";
+import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { defaultCatalogKeys, virtualCatalog } from "./catalog";
 
 type Tab = "today" | "wardrobe" | "discover" | "profile";
@@ -32,7 +32,7 @@ type WeatherForecastResponse = {
   current?: { temperature_2m: number; apparent_temperature: number; precipitation: number; weather_code: number; wind_speed_10m: number };
   daily?: { temperature_2m_max?: number[]; temperature_2m_min?: number[]; precipitation_sum?: number[] };
 };
-type ProfileData = { preferredStyles: string[]; lastScene: string | null; onboardingCompleted?: boolean; weatherCity?: string | null; weatherLatitude?: number | null; weatherLongitude?: number | null; bodyHeight?: number | null; bodyWeight?: number | null; bodyShape?: string | null; modelPresentation?: string | null };
+type ProfileData = { preferredStyles: string[]; lastScene: string | null; onboardingCompleted?: boolean; weatherCity?: string | null; weatherLatitude?: number | null; weatherLongitude?: number | null; bodyHeight?: number | null; bodyWeight?: number | null; bodyShape?: string | null; modelPresentation?: string | null; fullBodyImageUrl?: string | null };
 type GarmentDraft = {
   name: string;
   category: string;
@@ -254,9 +254,12 @@ export default function Home() {
   const [bodyHeight, setBodyHeight] = useState("");
   const [bodyWeight, setBodyWeight] = useState("");
   const [bodyShape, setBodyShape] = useState("匀称");
-  const [modelPresentation, setModelPresentation] = useState("不指定");
+  const [modelPresentation, setModelPresentation] = useState("女生");
+  const [fullBodyImageUrl, setFullBodyImageUrl] = useState<string | null>(null);
+  const [fullBodyUploading, setFullBodyUploading] = useState(false);
   const [visualizingKey, setVisualizingKey] = useState<string | null>(null);
   const [visualizedLooks, setVisualizedLooks] = useState<Record<string, string>>({});
+  const attemptedAutoLooks = useRef(new Set<string>());
   const [chatInput, setChatInput] = useState("");
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [activeRequest, setActiveRequest] = useState<string | null>(null);
@@ -315,7 +318,8 @@ export default function Home() {
         setBodyHeight(data.profile.bodyHeight ? String(data.profile.bodyHeight) : "");
         setBodyWeight(data.profile.bodyWeight ? String(data.profile.bodyWeight) : "");
         setBodyShape(data.profile.bodyShape ?? "匀称");
-        setModelPresentation(["女性", "男性", "不指定"].includes(data.profile.modelPresentation ?? "") ? data.profile.modelPresentation! : "不指定");
+        setModelPresentation(data.profile.modelPresentation === "男性" || data.profile.modelPresentation === "男生" ? "男生" : "女生");
+        setFullBodyImageUrl(data.profile.fullBodyImageUrl ?? null);
         if (typeof data.profile.weatherLatitude === "number" && typeof data.profile.weatherLongitude === "number") {
           void fetchWeatherData({ latitude: data.profile.weatherLatitude, longitude: data.profile.weatherLongitude, name: data.profile.weatherCity ?? "当前位置" })
             .then((savedWeather) => { setWeather(savedWeather); setWeatherCityInput(savedWeather.city.split(" · ")[0]); })
@@ -405,7 +409,8 @@ export default function Home() {
       setBodyHeight(data.profile.bodyHeight ? String(data.profile.bodyHeight) : "");
       setBodyWeight(data.profile.bodyWeight ? String(data.profile.bodyWeight) : "");
       setBodyShape(data.profile.bodyShape ?? "匀称");
-      setModelPresentation(["女性", "男性", "不指定"].includes(data.profile.modelPresentation ?? "") ? data.profile.modelPresentation! : "不指定");
+      setModelPresentation(data.profile.modelPresentation === "男性" || data.profile.modelPresentation === "男生" ? "男生" : "女生");
+      setFullBodyImageUrl(data.profile.fullBodyImageUrl ?? null);
       return true;
     } catch {
       if (!quiet) showToast("没有保存成功，请稍后重试");
@@ -429,8 +434,54 @@ export default function Home() {
     }
     const ok = await persist({ action: "update_body_profile", height, weight, bodyShape, modelPresentation });
     if (ok) {
+      setVisualizedLooks({});
+      attemptedAutoLooks.current.clear();
       setBodyProfileOpen(false);
-      showToast("身体资料已保存，现在可以生成 AI 模特");
+      showToast("身体资料已保存，正在生成右侧试穿效果");
+    }
+  }
+
+  async function uploadFullBodyPhoto(event: ChangeEvent<HTMLInputElement>) {
+    const selected = event.target.files?.[0];
+    event.target.value = "";
+    if (!selected) return;
+    if (selected.size > 12 * 1024 * 1024) {
+      showToast("全身照不能超过 12MB");
+      return;
+    }
+    setFullBodyUploading(true);
+    try {
+      const file = await prepareUploadImage(selected);
+      const form = new FormData();
+      form.append("image", file);
+      const response = await fetch("/api/profile/full-body", { method: "POST", body: form });
+      const data = await response.json() as { error?: string; imageUrl?: string };
+      if (!response.ok || !data.imageUrl) throw new Error(data.error ?? "全身照上传失败");
+      setFullBodyImageUrl(data.imageUrl);
+      setVisualizedLooks({});
+      attemptedAutoLooks.current.clear();
+      showToast("全身照已保存，接下来会生成真人试穿");
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "全身照上传失败");
+    } finally {
+      setFullBodyUploading(false);
+    }
+  }
+
+  async function removeFullBodyPhoto() {
+    setFullBodyUploading(true);
+    try {
+      const response = await fetch("/api/profile/full-body", { method: "DELETE" });
+      const data = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(data.error ?? "全身照删除失败");
+      setFullBodyImageUrl(null);
+      setVisualizedLooks({});
+      attemptedAutoLooks.current.clear();
+      showToast("已删除全身照，恢复为假人模特");
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "全身照删除失败");
+    } finally {
+      setFullBodyUploading(false);
     }
   }
 
@@ -460,6 +511,40 @@ export default function Home() {
       setVisualizingKey(null);
     }
   }
+
+  const autoOutfit = outfits[0];
+  const autoOutfitIds = autoOutfit?.itemIds.join(",") ?? "";
+  useEffect(() => {
+    if (loading || !hasRealGarments || !bodyHeight || !bodyWeight || !autoOutfit || visualizedLooks[autoOutfit.key]) return;
+    const attemptKey = `${autoOutfit.key}:${fullBodyImageUrl ? "person" : "mannequin"}`;
+    if (attemptedAutoLooks.current.has(attemptKey)) return;
+    attemptedAutoLooks.current.add(attemptKey);
+    const controller = new AbortController();
+    let settled = false;
+    setVisualizingKey(autoOutfit.key);
+    void fetch("/api/outfits/visualize", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ itemIds: autoOutfit.itemIds }),
+      signal: controller.signal,
+    }).then(async (response) => {
+      const data = await response.json() as { error?: string; imageUrl?: string; remaining?: number };
+      if (!response.ok || !data.imageUrl) throw new Error(data.error ?? "AI 模特生成失败");
+      settled = true;
+      setVisualizedLooks((current) => ({ ...current, [autoOutfit.key]: data.imageUrl! }));
+      setToast(fullBodyImageUrl ? "真人试穿已生成" : "假人模特穿搭已生成");
+      window.setTimeout(() => setToast(""), 2200);
+    }).catch((error) => {
+      if (error instanceof DOMException && error.name === "AbortError") return;
+      settled = true;
+      setToast(error instanceof Error ? error.message : "AI 模特生成失败，可点击右侧重试");
+      window.setTimeout(() => setToast(""), 2200);
+    }).finally(() => setVisualizingKey((current) => current === autoOutfit.key ? null : current));
+    return () => {
+      controller.abort();
+      if (!settled) attemptedAutoLooks.current.delete(attemptKey);
+    };
+  }, [autoOutfit, autoOutfit?.key, autoOutfitIds, bodyHeight, bodyShape, bodyWeight, fullBodyImageUrl, hasRealGarments, loading, modelPresentation, visualizedLooks]);
 
   async function selectScene(nextScene: string | null) {
     setScene(nextScene);
@@ -745,10 +830,10 @@ export default function Home() {
                         {outfitGarments.map((garment) => <div className="real-piece" key={garment.id}>{garment.image ? <img src={garment.image} alt={garment.name} /> : <GarmentArt garment={garment} compact />}<span>{garment.name}</span></div>)}
                       </div>
                       <div className="model-panel">
-                        {visualizedLooks[outfit.key] ? <img className="generated-model" src={visualizedLooks[outfit.key]} alt={`${outfit.title} AI 模特试穿效果`} /> : <>
-                          <div className="mannequin-placeholder" aria-hidden="true"><i className="mannequin-head" /><i className="mannequin-body" /><i className="mannequin-legs" /></div>
-                          <strong>{bodyHeight && bodyWeight ? `${bodyHeight}cm · ${bodyWeight}kg` : "你的专属假人模特"}</strong>
-                          <button disabled={visualizingKey === outfit.key} onClick={() => generateOutfitLook(outfit)}>{visualizingKey === outfit.key ? "正在生成…" : "生成上身效果"}</button>
+                        {visualizedLooks[outfit.key] ? <><img className="generated-model" src={visualizedLooks[outfit.key]} alt={`${outfit.title} ${fullBodyImageUrl ? "真人" : "假人模特"}试穿效果`} /><span className="tryon-mode-badge">{fullBodyImageUrl ? "本人试穿" : `${modelPresentation}假人`}</span></> : <>
+                          <div className={`mannequin-placeholder ${visualizingKey === outfit.key ? "dressing" : ""}`} aria-hidden="true"><i className="mannequin-head" /><i className="mannequin-body" /><i className="mannequin-legs" /></div>
+                          <strong>{visualizingKey === outfit.key ? `正在给${fullBodyImageUrl ? "你" : "假人"}穿上这套衣服…` : bodyHeight && bodyWeight ? `${modelPresentation} · ${bodyHeight}cm · ${bodyWeight}kg` : "先填写资料生成试穿"}</strong>
+                          <button disabled={visualizingKey === outfit.key} onClick={() => generateOutfitLook(outfit)}>{visualizingKey === outfit.key ? "生成中，请稍候" : bodyHeight && bodyWeight ? "重新生成试穿" : "填写资料"}</button>
                         </>}
                       </div>
                     </div> : <div className="look-canvas">
@@ -846,9 +931,9 @@ export default function Home() {
           <form className="upload-modal body-profile-modal" role="dialog" aria-modal="true" aria-labelledby="body-profile-title" onSubmit={saveBodyProfile}>
             <div className="modal-handle" />
             <div className="modal-heading"><div><p className="eyebrow">建立你的专属比例</p><h2 id="body-profile-title">AI 模特身体资料</h2></div><button type="button" onClick={() => setBodyProfileOpen(false)} aria-label="关闭">×</button></div>
-            <p className="body-profile-note">这些信息只用于控制假人模特的身体比例，不生成真实人脸。生成结果是搭配示意，不代表服装的精确尺码效果。</p>
+            <p className="body-profile-note">未上传本人照片时，系统生成不露脸假人模特；自愿上传全身照后，系统会生成真人试穿。结果是搭配示意，不代表服装的精确尺码效果。</p>
             <div className="form-row"><label>身高（cm）<input type="number" min="120" max="220" value={bodyHeight} onChange={(event) => setBodyHeight(event.target.value)} placeholder="例如 165" required /></label><label>体重（kg）<input type="number" min="30" max="200" value={bodyWeight} onChange={(event) => setBodyWeight(event.target.value)} placeholder="例如 55" required /></label></div>
-            <fieldset className="profile-choice-group"><legend>性别 <small>用于选择假人模特的基础轮廓</small></legend><div className="gender-options">{[{ value: "女性", mark: "♀" }, { value: "男性", mark: "♂" }, { value: "不指定", mark: "○" }].map((item) => <button type="button" key={item.value} className={modelPresentation === item.value ? "selected" : ""} aria-pressed={modelPresentation === item.value} onClick={() => setModelPresentation(item.value)}><span>{item.mark}</span><strong>{item.value}</strong></button>)}</div></fieldset>
+            <fieldset className="profile-choice-group"><legend>性别 <small>用于选择假人模特的基础轮廓</small></legend><div className="gender-options">{[{ value: "女生", mark: "♀" }, { value: "男生", mark: "♂" }].map((item) => <button type="button" key={item.value} className={modelPresentation === item.value ? "selected" : ""} aria-pressed={modelPresentation === item.value} onClick={() => setModelPresentation(item.value)}><span>{item.mark}</span><strong>{item.value}</strong></button>)}</div></fieldset>
             <fieldset className="profile-choice-group body-shape-group"><legend>身材特点 <small>选择最接近的轮廓即可，不需要完全一致</small></legend><div className="body-shape-options">{[
               { value: "偏瘦", hint: "肩、腰、胯都较窄" },
               { value: "匀称", hint: "肩胯接近，腰线自然" },
@@ -857,6 +942,10 @@ export default function Home() {
               { value: "苹果形", hint: "腰腹轮廓较明显" },
               { value: "曲线型", hint: "肩胯接近，腰线突出" },
             ].map((item) => <button type="button" key={item.value} className={`body-shape-option shape-${item.value} ${bodyShape === item.value ? "selected" : ""}`} aria-pressed={bodyShape === item.value} onClick={() => setBodyShape(item.value)}><span className="body-reference" aria-hidden="true"><i className="body-reference-head" /><i className="body-reference-torso" /><i className="body-reference-legs" /></span><span><strong>{item.value}</strong><small>{item.hint}</small></span>{bodyShape === item.value && <b>✓</b>}</button>)}</div></fieldset>
+            <section className="person-reference-section" aria-label="本人全身照">
+              <div><strong>本人试穿照片</strong><small>可选；建议正面站立、全身入镜、光线清楚</small></div>
+              {fullBodyImageUrl ? <div className="person-reference-ready"><img src={fullBodyImageUrl} alt="已上传的本人全身参考照" /><span><b>已启用真人试穿</b><small>照片仅用于生成你的试穿效果</small></span><button type="button" disabled={fullBodyUploading} onClick={removeFullBodyPhoto}>删除</button></div> : <label className="person-reference-upload"><input type="file" accept="image/jpeg,image/png,image/webp" onChange={uploadFullBodyPhoto} disabled={fullBodyUploading} /><span>{fullBodyUploading ? "正在上传…" : "＋ 上传本人全身照"}</span></label>}
+            </section>
             <button className="primary-button" type="submit" disabled={saving}>保存身体资料</button>
             <p className="body-profile-limit">AI 模特由 Seedream 生成，每位访客每天最多生成 3 套；相同搭配会直接使用已生成结果。</p>
           </form>

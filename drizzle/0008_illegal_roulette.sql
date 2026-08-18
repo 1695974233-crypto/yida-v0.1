@@ -1,0 +1,1 @@
+ALTER TABLE `profiles` ADD `full_body_image_key` text;

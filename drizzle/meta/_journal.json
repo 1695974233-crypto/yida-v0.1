@@ -57,6 +57,13 @@
       "when": 1787044995290,
       "tag": "0007_exotic_whizzer",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1787046335829,
+      "tag": "0008_illegal_roulette",
+      "breakpoints": true
     }
   ]
 }

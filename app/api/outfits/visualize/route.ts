@@ -41,12 +41,13 @@ export async function POST(request: Request) {
     if (!profile?.bodyHeight || !profile.bodyWeight || !profile.bodyShape || !profile.modelPresentation) {
       return Response.json({ error: "请先填写身高、体重和身材信息", needsProfile: true }, { status: 400 });
     }
+    const normalizedPresentation = profile.modelPresentation === "男性" || profile.modelPresentation === "男生" ? "男生" : "女生";
     const selected = await db.select().from(garments).where(and(eq(garments.userId, visitor.id), inArray(garments.id, itemIds)));
     if (selected.length !== itemIds.length || selected.some((item) => item.isVirtual || !(item.processedImageKey || item.imageKey))) {
       return Response.json({ error: "AI 模特只能使用你真实上传的衣服" }, { status: 400 });
     }
     const ordered = itemIds.map((id) => selected.find((item) => item.id === id)!);
-    const cacheHash = await shortHash(JSON.stringify({ itemIds: [...itemIds].sort((a, b) => a - b), height: profile.bodyHeight, weight: profile.bodyWeight, shape: profile.bodyShape, presentation: profile.modelPresentation }));
+    const cacheHash = await shortHash(JSON.stringify({ itemIds: [...itemIds].sort((a, b) => a - b), height: profile.bodyHeight, weight: profile.bodyWeight, shape: profile.bodyShape, presentation: normalizedPresentation, personReference: profile.fullBodyImageKey ?? null }));
     const outputKey = `${visitor.id}/looks/${cacheHash}.png`;
     if (await runtime.GARMENT_IMAGES.head(outputKey)) {
       return Response.json({ imageUrl: `/api/garments/image?key=${encodeURIComponent(outputKey)}`, cached: true });
@@ -59,15 +60,20 @@ export async function POST(request: Request) {
       if (!object) throw new Error(`没有找到“${item.name}”的图片`);
       return toDataUrl(new Uint8Array(await object.arrayBuffer()), object.httpMetadata?.contentType ?? "image/jpeg");
     }));
+    let personReferenceDataUrl: string | undefined;
+    if (profile.fullBodyImageKey?.startsWith(`${visitor.id}/`)) {
+      const reference = await runtime.GARMENT_IMAGES.get(profile.fullBodyImageKey);
+      if (reference) personReferenceDataUrl = toDataUrl(new Uint8Array(await reference.arrayBuffer()), reference.httpMetadata?.contentType ?? "image/jpeg");
+    }
     const output = await visualizeOutfitWithSeedream(imageDataUrls, ordered.map((item) => item.name), {
       height: profile.bodyHeight,
       weight: profile.bodyWeight,
       bodyShape: profile.bodyShape,
-      presentation: profile.modelPresentation,
-    }, runtime.ARK_API_KEY, runtime.ARK_SEEDREAM_MODEL);
+      presentation: normalizedPresentation,
+    }, runtime.ARK_API_KEY, runtime.ARK_SEEDREAM_MODEL, personReferenceDataUrl);
     await runtime.GARMENT_IMAGES.put(outputKey, output, {
       httpMetadata: { contentType: "image/png", cacheControl: "private, max-age=3600" },
-      customMetadata: { userId: visitor.id, sourceIds: itemIds.join(","), model: runtime.ARK_SEEDREAM_MODEL ?? "doubao-seedream-5-0-260128" },
+      customMetadata: { userId: visitor.id, sourceIds: itemIds.join(","), mode: personReferenceDataUrl ? "person" : "mannequin", model: runtime.ARK_SEEDREAM_MODEL ?? "doubao-seedream-5-0-260128" },
     });
     return Response.json({ imageUrl: `/api/garments/image?key=${encodeURIComponent(outputKey)}`, remaining: usage.remaining });
   } catch (error) {

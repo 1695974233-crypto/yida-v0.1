@@ -22,6 +22,7 @@ async function ensureSchema() {
       body_weight INTEGER,
       body_shape TEXT,
       model_presentation TEXT,
+      full_body_image_key TEXT,
       onboarding_completed INTEGER DEFAULT false NOT NULL,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP NOT NULL,
       updated_at TEXT DEFAULT CURRENT_TIMESTAMP NOT NULL
@@ -84,6 +85,7 @@ async function ensureSchema() {
     ["body_weight", "ALTER TABLE profiles ADD COLUMN body_weight INTEGER"],
     ["body_shape", "ALTER TABLE profiles ADD COLUMN body_shape TEXT"],
     ["model_presentation", "ALTER TABLE profiles ADD COLUMN model_presentation TEXT"],
+    ["full_body_image_key", "ALTER TABLE profiles ADD COLUMN full_body_image_key TEXT"],
   ];
   for (const [column, statement] of profileAdditions) {
     if (!existingProfileColumns.has(column)) await d1.prepare(statement).run();
@@ -193,6 +195,7 @@ async function stateFor(userId: string) {
       bodyWeight: profile?.bodyWeight ?? null,
       bodyShape: profile?.bodyShape ?? null,
       modelPresentation: profile?.modelPresentation ?? null,
+      fullBodyImageUrl: profile?.fullBodyImageKey ? `/api/garments/image?key=${encodeURIComponent(profile.fullBodyImageKey)}` : null,
     },
     garments: clothing.map((item) => ({
       ...item,
@@ -279,7 +282,7 @@ export async function POST(request: Request) {
       const height = typeof payload.height === "number" ? Math.round(payload.height) : null;
       const weight = typeof payload.weight === "number" ? Math.round(payload.weight) : null;
       const allowedShapes = ["匀称", "偏瘦", "肩宽", "梨形", "苹果形", "曲线型"];
-      const allowedPresentations = ["女性", "男性", "不指定"];
+      const allowedPresentations = ["女生", "男生"];
       if (height === null || height < 120 || height > 220 || weight === null || weight < 30 || weight > 200) {
         return Response.json({ error: "请填写有效的身高和体重" }, { status: 400 });
       }
@@ -287,7 +290,7 @@ export async function POST(request: Request) {
         bodyHeight: height,
         bodyWeight: weight,
         bodyShape: typeof payload.bodyShape === "string" && allowedShapes.includes(payload.bodyShape) ? payload.bodyShape : "匀称",
-        modelPresentation: typeof payload.modelPresentation === "string" && allowedPresentations.includes(payload.modelPresentation) ? payload.modelPresentation : "不指定",
+        modelPresentation: typeof payload.modelPresentation === "string" && allowedPresentations.includes(payload.modelPresentation) ? payload.modelPresentation : "女生",
         updatedAt: new Date().toISOString(),
       }).where(eq(profiles.userId, user.id));
     } else if (payload.action === "complete_onboarding") {

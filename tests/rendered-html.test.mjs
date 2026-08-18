@@ -68,17 +68,25 @@ test("switches to real wardrobe photos and supports Seedream mannequin previews"
     readFile(new URL("../lib/visitor.ts", import.meta.url), "utf8"),
   ]);
   assert.match(page, /已切换为真实衣柜/);
-  assert.match(page, /生成上身效果/);
+  assert.match(page, /重新生成试穿/);
   assert.match(page, /AI 模特身体资料/);
   assert.match(page, /性别/);
+  assert.match(page, /女生/);
+  assert.match(page, /男生/);
+  assert.doesNotMatch(page, /value: "不指定"/);
   assert.match(page, /肩胯接近，腰线自然/);
   assert.match(page, /body-reference/);
+  assert.match(page, /上传本人全身照/);
+  assert.match(page, /正在给.*穿上这套衣服/);
   assert.match(visualizeRoute, /consumeVisualization/);
+  assert.match(visualizeRoute, /fullBodyImageKey/);
   assert.match(arkAdapter, /visualizeOutfitWithSeedream/);
+  assert.match(arkAdapter, /真人虚拟试穿生成器/);
   assert.match(schema, /bodyHeight/);
   assert.match(schema, /visualizationUsage/);
   assert.match(visitor, /yida_visitor/);
   assert.match(visitor, /Max-Age=31536000/);
   await access(new URL("../drizzle/0006_jittery_skaar.sql", import.meta.url));
   await access(new URL("../drizzle/0007_exotic_whizzer.sql", import.meta.url));
+  await access(new URL("../drizzle/0008_illegal_roulette.sql", import.meta.url));
 });

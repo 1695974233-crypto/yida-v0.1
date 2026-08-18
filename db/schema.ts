@@ -13,6 +13,7 @@ export const profiles = sqliteTable("profiles", {
   bodyWeight: integer("body_weight"),
   bodyShape: text("body_shape"),
   modelPresentation: text("model_presentation"),
+  fullBodyImageKey: text("full_body_image_key"),
   onboardingCompleted: integer("onboarding_completed", { mode: "boolean" }).notNull().default(false),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
   updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),
