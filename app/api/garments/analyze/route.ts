@@ -60,7 +60,7 @@ export async function POST(request: Request) {
     if (runtime.ARK_API_KEY) {
       try {
         analysis = await analyzeGarmentWithArk(dataUrl, runtime.ARK_API_KEY, runtime.ARK_VISION_MODEL);
-        recognitionProvider = runtime.ARK_VISION_MODEL ?? "seed-2-0-lite-260228";
+        recognitionProvider = runtime.ARK_VISION_MODEL ?? "doubao-seed-2-0-lite-260215";
       } catch (error) {
         pipelineWarnings.push(error instanceof Error ? error.message : "AI 识别暂时不可用");
       }
@@ -73,7 +73,7 @@ export async function POST(request: Request) {
         processedKey = `${userId}/${id}/seedream.png`;
         await runtime.GARMENT_IMAGES.put(processedKey, processed, {
           httpMetadata: { contentType: "image/png", cacheControl: "private, max-age=3600" },
-          customMetadata: { userId, source: originalKey, model: runtime.ARK_SEEDREAM_MODEL ?? "seedream-5-0-lite-260128" },
+          customMetadata: { userId, source: originalKey, model: runtime.ARK_SEEDREAM_MODEL ?? "doubao-seedream-5-0-260128" },
         });
       } catch (error) {
         pipelineWarnings.push(error instanceof Error ? error.message : "Seedream 展示图整理暂时不可用");
@@ -86,7 +86,7 @@ export async function POST(request: Request) {
       processedImageKey: processedKey,
       imageUrl: `/api/garments/image?key=${encodeURIComponent(processedKey ?? originalKey)}`,
       recognitionProvider,
-      enhancerProvider: processedKey ? (runtime.ARK_SEEDREAM_MODEL ?? "seedream-5-0-lite-260128") : null,
+      enhancerProvider: processedKey ? (runtime.ARK_SEEDREAM_MODEL ?? "doubao-seedream-5-0-260128") : null,
       aiReady: Boolean(runtime.ARK_API_KEY),
     });
   } catch (error) {

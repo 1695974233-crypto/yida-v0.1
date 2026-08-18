@@ -81,9 +81,11 @@ export function fallbackGarmentAnalysis(fileName: string): GarmentAnalysis {
   };
 }
 
-export async function analyzeGarmentWithArk(imageDataUrl: string, apiKey: string, model = "seed-2-0-lite-260228") {
+const ARK_CHINA_BASE_URL = "https://ark.cn-beijing.volces.com/api/v3";
+
+export async function analyzeGarmentWithArk(imageDataUrl: string, apiKey: string, model = "doubao-seed-2-0-lite-260215") {
   const prompt = `你是易搭的衣物录入助手。只分析图片里最主要的一件衣物，不要猜测看不清的细节。\n请仅输出一个 JSON 对象，字段如下：\nname: 简短中文名称；category: 只能是上衣/下装/外套/连衣裙/鞋子/配饰；colorName: 主要颜色中文；colorHex: 近似十六进制颜色；material: 材质，不确定写待确认；pattern: 图案；warmth: 1到5整数；styleTags: 从简约通勤/温柔松弛/清爽休闲/法式复古/街头感选择；sceneTags: 从上班/约会/休闲/运动选择；weatherTags: 从炎热/常规/微凉/寒冷/小雨选择；confidence: 0到100；warnings: 图片质量或识别不确定项数组。`;
-  const response = await fetch("https://ark.ap-southeast.bytepluses.com/api/v3/chat/completions", {
+  const response = await fetch(`${ARK_CHINA_BASE_URL}/chat/completions`, {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -111,8 +113,8 @@ function decodeBase64(value: string) {
   return bytes;
 }
 
-export async function enhanceGarmentWithSeedream(imageDataUrl: string, apiKey: string, model = "seedream-5-0-lite-260128") {
-  const response = await fetch("https://ark.ap-southeast.bytepluses.com/api/v3/images/generations", {
+export async function enhanceGarmentWithSeedream(imageDataUrl: string, apiKey: string, model = "doubao-seedream-5-0-260128") {
+  const response = await fetch(`${ARK_CHINA_BASE_URL}/images/generations`, {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
     body: JSON.stringify({

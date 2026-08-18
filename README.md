@@ -109,12 +109,12 @@ npm run db:generate
 
 ### 开启真实 AI 图片处理
 
-1. 在火山方舟或 BytePlus ModelArk 开通 `Seed 2.0 Lite` 和 `Seedream 5.0 Lite`。
+1. 在火山方舟中国区（华北 2 / 北京）开通 `Doubao-Seed-2.0-lite` 和 `Doubao-Seedream-5.0-lite`。
 2. 复制 `.env.example` 为 `.env.local`。
 3. 只在 `ARK_API_KEY` 后填写密钥；不要提交 `.env.local`。
 4. 重新启动本地服务。部署时把同名变量添加为服务端密钥。
 
-这里使用两个模型是因为职责不同：Seed 2.0 Lite 输出衣物属性，Seedream 5.0 Lite 输出整理后的图片。生成图仅用于展示，识别始终基于用户原图。
+默认调用地址为 `https://ark.cn-beijing.volces.com/api/v3`。这里使用两个模型是因为职责不同：Seed 2.0 Lite 输出衣物属性，Seedream 5.0 Lite 输出整理后的图片。生成图仅用于展示，识别始终基于用户原图。
 
 ## 当前技术栈
 
@@ -125,7 +125,7 @@ npm run db:generate
 - Cloudflare R2 私有图片存储
 - Drizzle ORM
 - OpenAI Sites 私密部署
-- BytePlus ModelArk / 火山方舟模型适配
+- 火山方舟中国区模型适配
 
 真实天气和大模型自由对话将在后续版本接入。
 

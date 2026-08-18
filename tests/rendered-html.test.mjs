@@ -36,6 +36,9 @@ test("includes the phase-three garment pipeline", async () => {
   assert.match(page, /确认信息，加入衣柜/);
   assert.match(analyzeRoute, /enhanceGarmentWithSeedream/);
   assert.match(analyzeRoute, /analyzeGarmentWithArk/);
+  const arkAdapter = await readFile(new URL("../lib/ark.ts", import.meta.url), "utf8");
+  assert.match(arkAdapter, /ark\.cn-beijing\.volces\.com\/api\/v3/);
+  assert.doesNotMatch(arkAdapter, /bytepluses|ap-southeast/);
   assert.match(schema, /recognitionConfidence/);
   assert.equal(JSON.parse(hosting).r2, "GARMENT_IMAGES");
   await access(new URL("../drizzle/0003_chubby_sprite.sql", import.meta.url));
