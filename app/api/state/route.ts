@@ -279,7 +279,7 @@ export async function POST(request: Request) {
       const height = typeof payload.height === "number" ? Math.round(payload.height) : null;
       const weight = typeof payload.weight === "number" ? Math.round(payload.weight) : null;
       const allowedShapes = ["匀称", "偏瘦", "肩宽", "梨形", "苹果形", "曲线型"];
-      const allowedPresentations = ["女性", "男性", "中性"];
+      const allowedPresentations = ["女性", "男性", "不指定"];
       if (height === null || height < 120 || height > 220 || weight === null || weight < 30 || weight > 200) {
         return Response.json({ error: "请填写有效的身高和体重" }, { status: 400 });
       }
@@ -287,7 +287,7 @@ export async function POST(request: Request) {
         bodyHeight: height,
         bodyWeight: weight,
         bodyShape: typeof payload.bodyShape === "string" && allowedShapes.includes(payload.bodyShape) ? payload.bodyShape : "匀称",
-        modelPresentation: typeof payload.modelPresentation === "string" && allowedPresentations.includes(payload.modelPresentation) ? payload.modelPresentation : "中性",
+        modelPresentation: typeof payload.modelPresentation === "string" && allowedPresentations.includes(payload.modelPresentation) ? payload.modelPresentation : "不指定",
         updatedAt: new Date().toISOString(),
       }).where(eq(profiles.userId, user.id));
     } else if (payload.action === "complete_onboarding") {

@@ -254,7 +254,7 @@ export default function Home() {
   const [bodyHeight, setBodyHeight] = useState("");
   const [bodyWeight, setBodyWeight] = useState("");
   const [bodyShape, setBodyShape] = useState("匀称");
-  const [modelPresentation, setModelPresentation] = useState("中性");
+  const [modelPresentation, setModelPresentation] = useState("不指定");
   const [visualizingKey, setVisualizingKey] = useState<string | null>(null);
   const [visualizedLooks, setVisualizedLooks] = useState<Record<string, string>>({});
   const [chatInput, setChatInput] = useState("");
@@ -315,7 +315,7 @@ export default function Home() {
         setBodyHeight(data.profile.bodyHeight ? String(data.profile.bodyHeight) : "");
         setBodyWeight(data.profile.bodyWeight ? String(data.profile.bodyWeight) : "");
         setBodyShape(data.profile.bodyShape ?? "匀称");
-        setModelPresentation(data.profile.modelPresentation ?? "中性");
+        setModelPresentation(["女性", "男性", "不指定"].includes(data.profile.modelPresentation ?? "") ? data.profile.modelPresentation! : "不指定");
         if (typeof data.profile.weatherLatitude === "number" && typeof data.profile.weatherLongitude === "number") {
           void fetchWeatherData({ latitude: data.profile.weatherLatitude, longitude: data.profile.weatherLongitude, name: data.profile.weatherCity ?? "当前位置" })
             .then((savedWeather) => { setWeather(savedWeather); setWeatherCityInput(savedWeather.city.split(" · ")[0]); })
@@ -405,7 +405,7 @@ export default function Home() {
       setBodyHeight(data.profile.bodyHeight ? String(data.profile.bodyHeight) : "");
       setBodyWeight(data.profile.bodyWeight ? String(data.profile.bodyWeight) : "");
       setBodyShape(data.profile.bodyShape ?? "匀称");
-      setModelPresentation(data.profile.modelPresentation ?? "中性");
+      setModelPresentation(["女性", "男性", "不指定"].includes(data.profile.modelPresentation ?? "") ? data.profile.modelPresentation! : "不指定");
       return true;
     } catch {
       if (!quiet) showToast("没有保存成功，请稍后重试");
@@ -848,7 +848,15 @@ export default function Home() {
             <div className="modal-heading"><div><p className="eyebrow">建立你的专属比例</p><h2 id="body-profile-title">AI 模特身体资料</h2></div><button type="button" onClick={() => setBodyProfileOpen(false)} aria-label="关闭">×</button></div>
             <p className="body-profile-note">这些信息只用于控制假人模特的身体比例，不生成真实人脸。生成结果是搭配示意，不代表服装的精确尺码效果。</p>
             <div className="form-row"><label>身高（cm）<input type="number" min="120" max="220" value={bodyHeight} onChange={(event) => setBodyHeight(event.target.value)} placeholder="例如 165" required /></label><label>体重（kg）<input type="number" min="30" max="200" value={bodyWeight} onChange={(event) => setBodyWeight(event.target.value)} placeholder="例如 55" required /></label></div>
-            <div className="form-row"><label>身材特点<select value={bodyShape} onChange={(event) => setBodyShape(event.target.value)}>{["匀称", "偏瘦", "肩宽", "梨形", "苹果形", "曲线型"].map((item) => <option key={item}>{item}</option>)}</select></label><label>模特呈现<select value={modelPresentation} onChange={(event) => setModelPresentation(event.target.value)}>{["中性", "女性", "男性"].map((item) => <option key={item}>{item}</option>)}</select></label></div>
+            <fieldset className="profile-choice-group"><legend>性别 <small>用于选择假人模特的基础轮廓</small></legend><div className="gender-options">{[{ value: "女性", mark: "♀" }, { value: "男性", mark: "♂" }, { value: "不指定", mark: "○" }].map((item) => <button type="button" key={item.value} className={modelPresentation === item.value ? "selected" : ""} aria-pressed={modelPresentation === item.value} onClick={() => setModelPresentation(item.value)}><span>{item.mark}</span><strong>{item.value}</strong></button>)}</div></fieldset>
+            <fieldset className="profile-choice-group body-shape-group"><legend>身材特点 <small>选择最接近的轮廓即可，不需要完全一致</small></legend><div className="body-shape-options">{[
+              { value: "偏瘦", hint: "肩、腰、胯都较窄" },
+              { value: "匀称", hint: "肩胯接近，腰线自然" },
+              { value: "肩宽", hint: "肩部明显宽于胯部" },
+              { value: "梨形", hint: "胯部宽于肩部" },
+              { value: "苹果形", hint: "腰腹轮廓较明显" },
+              { value: "曲线型", hint: "肩胯接近，腰线突出" },
+            ].map((item) => <button type="button" key={item.value} className={`body-shape-option shape-${item.value} ${bodyShape === item.value ? "selected" : ""}`} aria-pressed={bodyShape === item.value} onClick={() => setBodyShape(item.value)}><span className="body-reference" aria-hidden="true"><i className="body-reference-head" /><i className="body-reference-torso" /><i className="body-reference-legs" /></span><span><strong>{item.value}</strong><small>{item.hint}</small></span>{bodyShape === item.value && <b>✓</b>}</button>)}</div></fieldset>
             <button className="primary-button" type="submit" disabled={saving}>保存身体资料</button>
             <p className="body-profile-limit">AI 模特由 Seedream 生成，每位访客每天最多生成 3 套；相同搭配会直接使用已生成结果。</p>
           </form>

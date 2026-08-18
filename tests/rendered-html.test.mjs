@@ -70,6 +70,9 @@ test("switches to real wardrobe photos and supports Seedream mannequin previews"
   assert.match(page, /已切换为真实衣柜/);
   assert.match(page, /生成上身效果/);
   assert.match(page, /AI 模特身体资料/);
+  assert.match(page, /性别/);
+  assert.match(page, /肩胯接近，腰线自然/);
+  assert.match(page, /body-reference/);
   assert.match(visualizeRoute, /consumeVisualization/);
   assert.match(arkAdapter, /visualizeOutfitWithSeedream/);
   assert.match(schema, /bodyHeight/);
