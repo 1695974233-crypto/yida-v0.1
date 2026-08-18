@@ -15,6 +15,9 @@ async function ensureSchema() {
       display_name TEXT DEFAULT '晚晚' NOT NULL,
       preferred_styles TEXT DEFAULT '["简约通勤","清爽休闲"]' NOT NULL,
       last_scene TEXT,
+      weather_city TEXT,
+      weather_latitude REAL,
+      weather_longitude REAL,
       onboarding_completed INTEGER DEFAULT false NOT NULL,
       created_at TEXT DEFAULT CURRENT_TIMESTAMP NOT NULL,
       updated_at TEXT DEFAULT CURRENT_TIMESTAMP NOT NULL
@@ -67,6 +70,16 @@ async function ensureSchema() {
     d1.prepare("CREATE INDEX IF NOT EXISTS idx_feedback_user_created ON feedback(user_id, created_at)"),
     d1.prepare("CREATE INDEX IF NOT EXISTS idx_chat_messages_user_created ON chat_messages(user_id, created_at)"),
   ]);
+  const profileColumns = await d1.prepare("PRAGMA table_info(profiles)").all<{ name: string }>();
+  const existingProfileColumns = new Set(profileColumns.results.map((column) => column.name));
+  const profileAdditions: Array<[string, string]> = [
+    ["weather_city", "ALTER TABLE profiles ADD COLUMN weather_city TEXT"],
+    ["weather_latitude", "ALTER TABLE profiles ADD COLUMN weather_latitude REAL"],
+    ["weather_longitude", "ALTER TABLE profiles ADD COLUMN weather_longitude REAL"],
+  ];
+  for (const [column, statement] of profileAdditions) {
+    if (!existingProfileColumns.has(column)) await d1.prepare(statement).run();
+  }
   const garmentColumns = await d1.prepare("PRAGMA table_info(garments)").all<{ name: string }>();
   const existingColumns = new Set(garmentColumns.results.map((column) => column.name));
   const additions: Array<[string, string]> = [
@@ -158,7 +171,15 @@ async function stateFor(userId: string) {
   const messages = (await db.select().from(chatMessages).where(eq(chatMessages.userId, userId)).orderBy(desc(chatMessages.createdAt), desc(chatMessages.id)).limit(40)).reverse();
   const now = new Date().toISOString();
   return {
-    profile: { displayName: profile?.displayName ?? "晚晚", preferredStyles: parseList(profile?.preferredStyles ?? "[]"), lastScene: profile?.lastScene ?? null, onboardingCompleted: Boolean(profile?.onboardingCompleted) },
+    profile: {
+      displayName: profile?.displayName ?? "晚晚",
+      preferredStyles: parseList(profile?.preferredStyles ?? "[]"),
+      lastScene: profile?.lastScene ?? null,
+      onboardingCompleted: Boolean(profile?.onboardingCompleted),
+      weatherCity: profile?.weatherCity ?? null,
+      weatherLatitude: profile?.weatherLatitude ?? null,
+      weatherLongitude: profile?.weatherLongitude ?? null,
+    },
     garments: clothing.map((item) => ({
       ...item,
       image: item.processedImageKey || item.imageKey ? `/api/garments/image?key=${encodeURIComponent(item.processedImageKey ?? item.imageKey ?? "")}` : undefined,
@@ -222,6 +243,18 @@ export async function POST(request: Request) {
       await db.delete(garments).where(and(eq(garments.userId, user.id), eq(garments.catalogKey, payload.catalogKey)));
     } else if (payload.action === "update_scene") {
       await db.update(profiles).set({ lastScene: typeof payload.scene === "string" ? payload.scene : null, updatedAt: new Date().toISOString() }).where(eq(profiles.userId, user.id));
+    } else if (payload.action === "update_location") {
+      const latitude = typeof payload.latitude === "number" && Number.isFinite(payload.latitude) ? Math.round(payload.latitude * 100) / 100 : null;
+      const longitude = typeof payload.longitude === "number" && Number.isFinite(payload.longitude) ? Math.round(payload.longitude * 100) / 100 : null;
+      if (latitude === null || longitude === null || latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) {
+        return Response.json({ error: "位置数据无效" }, { status: 400 });
+      }
+      await db.update(profiles).set({
+        weatherCity: typeof payload.city === "string" ? payload.city.slice(0, 40) : "当前位置",
+        weatherLatitude: latitude,
+        weatherLongitude: longitude,
+        updatedAt: new Date().toISOString(),
+      }).where(eq(profiles.userId, user.id));
     } else if (payload.action === "update_styles" && Array.isArray(payload.styles)) {
       await db.update(profiles).set({ preferredStyles: JSON.stringify(payload.styles), updatedAt: new Date().toISOString() }).where(eq(profiles.userId, user.id));
     } else if (payload.action === "complete_onboarding") {

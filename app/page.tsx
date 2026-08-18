@@ -25,6 +25,9 @@ type FeedbackRecord = { outfitKey: string; action: string };
 type Outfit = { key: string; title: string; tag: string; score: number; colors: string[]; items: string; reason: string; itemIds: number[] };
 type RequestConstraints = { scene?: string; warmth?: "warmer" | "lighter"; formality?: "formal" | "casual"; avoid?: string[]; colors?: string[] };
 type ChatMessage = { id: number; role: "user" | "assistant"; content: string; createdAt?: string };
+type WeatherData = { city: string; latitude: number; longitude: number; temperature: number; apparentTemperature: number; precipitation: number; windSpeed: number; weatherCode: number; temperatureMax: number; temperatureMin: number; condition: string; icon: string };
+type WeatherLocation = { latitude?: number; longitude?: number; name?: string; city?: string };
+type ProfileData = { preferredStyles: string[]; lastScene: string | null; onboardingCompleted?: boolean; weatherCity?: string | null; weatherLatitude?: number | null; weatherLongitude?: number | null };
 type GarmentDraft = {
   name: string;
   category: string;
@@ -58,7 +61,7 @@ const initialGarments: Garment[] = defaultCatalogKeys.map((key, index) => {
   return { id: index + 1, catalogKey: key, ...item, isVirtual: true, dirty: key === "pink-skirt" };
 });
 
-function buildOutfits(garments: Garment[], scene: string | null, styles: string[], constraints: RequestConstraints): Outfit[] {
+function buildOutfits(garments: Garment[], scene: string | null, styles: string[], constraints: RequestConstraints, weather: WeatherData | null): Outfit[] {
   const available = garments.filter((item) => !item.dirty && !(constraints.avoid ?? []).some((term) => item.name.includes(term) || item.category.includes(term)));
   const tops = available.filter((item) => item.category === "上衣");
   const bottoms = available.filter((item) => item.category === "下装");
@@ -72,8 +75,10 @@ function buildOutfits(garments: Garment[], scene: string | null, styles: string[
     const pieces = [...basePieces.slice(0, -1), ...(outer ? [outer] : []), basePieces[basePieces.length - 1]];
     let score = 62;
     const warmth = pieces.reduce((sum, item) => sum + item.warmth, 0);
-    const warmthRange = constraints.warmth === "warmer" ? [7, 11] : constraints.warmth === "lighter" ? [3, 6] : [6, 9];
-    score += warmth >= warmthRange[0] && warmth <= warmthRange[1] ? 10 : warmth >= 4 && warmth <= 11 ? 4 : -5;
+    const feelsLike = weather?.apparentTemperature;
+    const weatherWarmthRange = feelsLike === undefined ? [6, 9] : feelsLike >= 30 ? [3, 5] : feelsLike >= 24 ? [3, 6] : feelsLike >= 18 ? [4, 7] : feelsLike >= 10 ? [6, 9] : feelsLike >= 0 ? [8, 12] : [9, 14];
+    const warmthRange = constraints.warmth === "warmer" ? [Math.max(6, weatherWarmthRange[0] + 1), weatherWarmthRange[1] + 2] : constraints.warmth === "lighter" ? [3, Math.max(5, weatherWarmthRange[1] - 2)] : weatherWarmthRange;
+    score += warmth >= warmthRange[0] && warmth <= warmthRange[1] ? 10 : warmth >= 3 && warmth <= 12 ? 4 : -5;
     const styleHits = pieces.reduce((sum, item) => sum + item.styleTags.filter((style) => styles.includes(style)).length, 0);
     score += Math.min(styleHits * 3, 12);
     if (scene) {
@@ -81,7 +86,12 @@ function buildOutfits(garments: Garment[], scene: string | null, styles: string[
       const sceneHits = pieces.filter((item) => item.sceneTags.some((tag) => compatibleScenes.includes(tag))).length;
       score += sceneHits === pieces.length ? 10 : sceneHits * 2;
     } else score += 5;
-    if (pieces.some((item) => item.weatherTags.includes("小雨"))) score += 5;
+    const isRainy = Boolean(weather && (weather.precipitation > 0.1 || (weather.weatherCode >= 51 && weather.weatherCode <= 82)));
+    const isWindy = Boolean(weather && weather.windSpeed >= 25);
+    const targetWeatherTag = feelsLike === undefined ? "常规" : feelsLike >= 28 ? "炎热" : feelsLike >= 18 ? "常规" : feelsLike >= 10 ? "微凉" : "寒冷";
+    score += pieces.filter((item) => item.weatherTags.includes(targetWeatherTag)).length * 2;
+    if (isRainy) score += pieces.filter((item) => item.weatherTags.includes("小雨")).length * 3;
+    if (isWindy) score += outer ? 5 : -2;
     if (constraints.formality === "formal") score += pieces.filter((item) => item.styleTags.includes("简约通勤")).length * 2;
     if (constraints.formality === "casual") score += pieces.filter((item) => item.styleTags.includes("清爽休闲") || item.styleTags.includes("温柔松弛")).length * 2;
     if (constraints.colors?.length) score += pieces.filter((item) => constraints.colors?.some((color) => item.colorName.includes(color))).length * 4;
@@ -91,12 +101,12 @@ function buildOutfits(garments: Garment[], scene: string | null, styles: string[
     const key = `${scene ?? "日常"}-${itemIds.slice().sort((a, b) => a - b).join("-")}`;
     candidates.push({
       key,
-      title: scene === "上班" ? "轻松有分寸" : scene === "约会" ? "温柔但不刻意" : scene === "运动" ? "舒服动起来" : outer ? "雨天也清爽" : "舒服不费力",
+      title: scene === "上班" ? "轻松有分寸" : scene === "约会" ? "温柔但不刻意" : scene === "运动" ? "舒服动起来" : isRainy && outer ? "雨天也清爽" : outer ? "温差也从容" : "舒服不费力",
       tag: candidates.length === 0 ? "最适合今天" : scene ? `${scene}优选` : "日常通用",
       score: Math.min(score, 98),
       colors: pieces.map((item) => item.color),
       items: pieces.map((item) => item.name).join(" · "),
-      reason: `${outer ? `${outer.name}可以应对小雨和温差。` : "整体厚度适合今天 18—25℃ 的天气。"}${scene ? `这几件都能用于${scene}场景，` : "在没有指定场景时，"}并优先使用你偏爱的${styles[0] ?? "清爽"}风格${constraints.avoid?.length ? `，已避开${constraints.avoid.join("、")}` : ""}。`,
+      reason: `${weather ? `${weather.city}今天 ${weather.temperatureMin}—${weather.temperatureMax}℃，体感 ${weather.apparentTemperature}℃${isRainy ? "，有降雨" : ""}${isWindy ? "，风力较明显" : ""}。` : "尚未设置真实天气，先按常规温度推荐。"}${outer ? `${outer.name}可以应对${isRainy ? "降雨" : "温差"}。` : "整体厚度与当前体感相符。"}${scene ? `这几件适合${scene}场景，` : "在没有指定场景时，"}并优先使用你偏爱的${styles[0] ?? "清爽"}风格${constraints.avoid?.length ? `，已避开${constraints.avoid.join("、")}` : ""}。`,
       itemIds,
     });
   }
@@ -113,6 +123,18 @@ function buildOutfits(garments: Garment[], scene: string | null, styles: string[
 
 const scenes = ["上班", "约会", "休闲", "运动"];
 const styleChoices = ["简约通勤", "温柔松弛", "清爽休闲", "法式复古", "街头感"];
+
+async function fetchWeatherData(location: WeatherLocation) {
+  const query = new URLSearchParams();
+  if (location.city) query.set("city", location.city);
+  if (typeof location.latitude === "number") query.set("latitude", String(location.latitude));
+  if (typeof location.longitude === "number") query.set("longitude", String(location.longitude));
+  if (location.name) query.set("name", location.name);
+  const response = await fetch(`/api/weather?${query.toString()}`, { cache: "no-store" });
+  const data = await response.json() as WeatherData & { error?: string };
+  if (!response.ok || data.error) throw new Error(data.error ?? "天气获取失败");
+  return data;
+}
 
 async function prepareUploadImage(file: File) {
   if (file.size <= 700 * 1024) return file;
@@ -153,6 +175,10 @@ export default function Home() {
   const [garments, setGarments] = useState(initialGarments);
   const [catalogOpen, setCatalogOpen] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
+  const [weatherOpen, setWeatherOpen] = useState(false);
+  const [weather, setWeather] = useState<WeatherData | null>(null);
+  const [weatherCityInput, setWeatherCityInput] = useState("");
+  const [weatherLoading, setWeatherLoading] = useState(false);
   const [chatInput, setChatInput] = useState("");
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [activeRequest, setActiveRequest] = useState<string | null>(null);
@@ -185,8 +211,9 @@ export default function Home() {
     () => garments.filter((item) => wardrobeFilter === "全部" || (wardrobeFilter === "脏衣篓" ? item.dirty : item.category === wardrobeFilter)),
     [garments, wardrobeFilter],
   );
-  const generatedOutfits = useMemo(() => buildOutfits(garments, scene, styles, requestConstraints), [garments, scene, styles, requestConstraints]);
+  const generatedOutfits = useMemo(() => buildOutfits(garments, scene, styles, requestConstraints, weather), [garments, scene, styles, requestConstraints, weather]);
   const outfits = useMemo(() => [...generatedOutfits.slice(rotation), ...generatedOutfits.slice(0, rotation)], [generatedOutfits, rotation]);
+  const todayLabel = new Intl.DateTimeFormat("zh-CN", { month: "long", day: "numeric", weekday: "long", timeZone: "Asia/Shanghai" }).format(new Date());
 
   useEffect(() => {
     fetch("/api/state", { cache: "no-store" })
@@ -194,7 +221,7 @@ export default function Home() {
         if (!response.ok) throw new Error("无法连接你的衣柜");
         return response.json();
       })
-      .then((data: { profile: { preferredStyles: string[]; lastScene: string | null; onboardingCompleted: boolean }; garments: Garment[]; feedback: FeedbackRecord[]; chat: { activeRequest: string | null; constraints: RequestConstraints; messages: ChatMessage[] } }) => {
+      .then((data: { profile: ProfileData; garments: Garment[]; feedback: FeedbackRecord[]; chat: { activeRequest: string | null; constraints: RequestConstraints; messages: ChatMessage[] } }) => {
         setGarments(data.garments);
         setStyles(data.profile.preferredStyles.length ? data.profile.preferredStyles : ["简约通勤", "清爽休闲"]);
         setScene(data.profile.lastScene);
@@ -205,6 +232,11 @@ export default function Home() {
         setActiveRequest(data.chat.activeRequest);
         setRequestConstraints(data.chat.constraints);
         setChatMessages(data.chat.messages);
+        if (typeof data.profile.weatherLatitude === "number" && typeof data.profile.weatherLongitude === "number") {
+          void fetchWeatherData({ latitude: data.profile.weatherLatitude, longitude: data.profile.weatherLongitude, name: data.profile.weatherCity ?? "当前位置" })
+            .then((savedWeather) => { setWeather(savedWeather); setWeatherCityInput(savedWeather.city.split(" · ")[0]); })
+            .catch(() => showToast("上次城市的天气暂时无法更新"));
+        }
       })
       .catch(() => showToast("当前使用演示数据，稍后会自动重试"))
       .finally(() => setLoading(false));
@@ -213,6 +245,43 @@ export default function Home() {
   function showToast(message: string) {
     setToast(message);
     window.setTimeout(() => setToast(""), 2200);
+  }
+
+  async function loadWeather(location: WeatherLocation, saveLocation = true) {
+    setWeatherLoading(true);
+    try {
+      const data = await fetchWeatherData(location);
+      setWeather(data);
+      setWeatherCityInput(data.city.split(" · ")[0]);
+      setRotation(0);
+      if (saveLocation) await persist({ action: "update_location", city: data.city, latitude: data.latitude, longitude: data.longitude }, true);
+      setWeatherOpen(false);
+      showToast(`已更新 ${data.city} 的真实天气`);
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "天气获取失败，请稍后重试");
+    } finally {
+      setWeatherLoading(false);
+    }
+  }
+
+  function useCurrentLocation() {
+    if (!navigator.geolocation) {
+      showToast("当前浏览器不支持定位，请手动输入城市");
+      return;
+    }
+    setWeatherLoading(true);
+    navigator.geolocation.getCurrentPosition(
+      (position) => { void loadWeather({ latitude: position.coords.latitude, longitude: position.coords.longitude, name: "当前位置" }); },
+      () => { setWeatherLoading(false); showToast("没有获得定位权限，请手动输入城市"); },
+      { enableHighAccuracy: false, timeout: 10_000, maximumAge: 30 * 60 * 1000 },
+    );
+  }
+
+  async function searchWeatherCity(event: FormEvent) {
+    event.preventDefault();
+    const city = weatherCityInput.trim();
+    if (!city) return;
+    await loadWeather({ city });
   }
 
   function toggleStyle(value: string) {
@@ -224,7 +293,7 @@ export default function Home() {
     try {
       const response = await fetch("/api/state", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(action) });
       if (!response.ok) throw new Error("保存失败");
-      const data = await response.json() as { profile: { preferredStyles: string[]; lastScene: string | null }; garments: Garment[]; feedback: FeedbackRecord[]; chat: { activeRequest: string | null; constraints: RequestConstraints; messages: ChatMessage[] } };
+      const data = await response.json() as { profile: ProfileData; garments: Garment[]; feedback: FeedbackRecord[]; chat: { activeRequest: string | null; constraints: RequestConstraints; messages: ChatMessage[] } };
       setGarments(data.garments);
       setStyles(data.profile.preferredStyles);
       setScene(data.profile.lastScene);
@@ -467,7 +536,7 @@ export default function Home() {
           {onboardingStep === 2 && (
             <section className="onboarding-panel ready-panel">
               <div className="step-line"><span className="active" /><span className="active" /><span className="active" /></div>
-              <div className="weather-orb"><span>☔</span><strong>22°</strong><small>上海 · 小雨</small></div>
+              <div className="weather-orb"><span>{weather?.icon ?? "🌤️"}</span><strong>{weather ? `${weather.temperature}°` : "--°"}</strong><small>{weather ? `${weather.city} · ${weather.condition}` : "进入后设置真实天气"}</small></div>
               <p className="eyebrow">准备好了</p>
               <h2>今天的第一套，<br />已经为你搭好</h2>
               <p className="lead">当前使用 8 件演示单品。之后上传真实衣服，推荐会越来越像你。</p>
@@ -486,13 +555,13 @@ export default function Home() {
       {tab === "today" && (
         <section className="screen today-screen">
           <div className="greeting-row">
-            <div><p className="date-label">8 月 17 日 · 星期一</p><h1>晚上好，晚晚</h1></div>
-            <div className="weather-pill"><span>☔</span><div><strong>22℃</strong><small>小雨 · 上海</small></div></div>
+            <div><p className="date-label">{todayLabel}</p><h1>晚上好，晚晚</h1></div>
+            <button className="weather-pill" onClick={() => setWeatherOpen(true)} aria-label="设置天气"><span>{weather?.icon ?? "🌤️"}</span><div><strong>{weather ? `${weather.temperature}℃` : "设置天气"}</strong><small>{weather ? `${weather.condition} · ${weather.city}` : "定位或选择城市"}</small></div></button>
           </div>
 
           <div className="context-card">
-            <div><span className="status-dot" />定位天气已更新</div>
-            <p>18—25℃，体感微凉，出门建议带一件轻薄外套。</p>
+            <div><span className="status-dot" />{weather ? "真实天气已更新" : "等待设置真实天气"}</div>
+            <p>{weather ? `${weather.temperatureMin}—${weather.temperatureMax}℃，体感 ${weather.apparentTemperature}℃，${weather.precipitation > 0.1 ? "今天可能有雨" : "当前无明显降雨"}${weather.windSpeed >= 25 ? "，风力较明显" : ""}。` : "选择当前位置或城市后，天气会直接参与穿搭推荐。"}</p>
           </div>
 
           <div className="section-heading">
@@ -598,6 +667,20 @@ export default function Home() {
         <button className={tab === "discover" ? "active" : ""} onClick={() => navTo("discover")}><span>✦</span>发现</button>
         <button className={tab === "profile" ? "active" : ""} onClick={() => navTo("profile")}><span>○</span>我的</button>
       </nav>
+
+      {weatherOpen && (
+        <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setWeatherOpen(false); }}>
+          <div className="upload-modal weather-modal" role="dialog" aria-modal="true" aria-labelledby="weather-title">
+            <div className="modal-handle" />
+            <div className="modal-heading"><div><p className="eyebrow">让推荐适合今天</p><h2 id="weather-title">设置天气位置</h2></div><button onClick={() => setWeatherOpen(false)} aria-label="关闭">×</button></div>
+            <p className="weather-explanation">易搭会读取温度、体感、降雨和风速，只在你主动点击后申请定位。</p>
+            <button className="location-button" disabled={weatherLoading} onClick={useCurrentLocation}><span>⌖</span><div><strong>{weatherLoading ? "正在获取天气…" : "使用我的当前位置"}</strong><small>只保存城市和小数点后两位的模糊坐标</small></div></button>
+            <div className="weather-divider"><span>或者手动选择</span></div>
+            <form className="city-search" onSubmit={searchWeatherCity}><input value={weatherCityInput} onChange={(event) => setWeatherCityInput(event.target.value)} placeholder="输入城市，例如：上海" maxLength={40} aria-label="城市名称" /><button type="submit" disabled={weatherLoading || !weatherCityInput.trim()}>查询</button></form>
+            <p className="weather-source">天气数据由 <a href="https://open-meteo.com/" target="_blank" rel="noreferrer">Open-Meteo</a> 提供；服务异常时仍可使用常规推荐。</p>
+          </div>
+        </div>
+      )}
 
       {chatOpen && (
         <div className="modal-backdrop chat-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setChatOpen(false); }}>

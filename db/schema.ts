@@ -1,11 +1,14 @@
 import { sql } from "drizzle-orm";
-import { index, integer, primaryKey, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
+import { index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core";
 
 export const profiles = sqliteTable("profiles", {
   userId: text("user_id").primaryKey(),
   displayName: text("display_name").notNull().default("晚晚"),
   preferredStyles: text("preferred_styles").notNull().default('["简约通勤","清爽休闲"]'),
   lastScene: text("last_scene"),
+  weatherCity: text("weather_city"),
+  weatherLatitude: real("weather_latitude"),
+  weatherLongitude: real("weather_longitude"),
   onboardingCompleted: integer("onboarding_completed", { mode: "boolean" }).notNull().default(false),
   createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
   updatedAt: text("updated_at").notNull().default(sql`CURRENT_TIMESTAMP`),

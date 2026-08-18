@@ -44,3 +44,17 @@ test("includes the phase-three garment pipeline", async () => {
   await access(new URL("../drizzle/0003_chubby_sprite.sql", import.meta.url));
   await assert.rejects(access(new URL("app/_sites-preview", projectRoot)));
 });
+
+test("includes real weather and privacy-aware location", async () => {
+  const [page, weatherRoute, schema] = await Promise.all([
+    readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/weather/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../db/schema.ts", import.meta.url), "utf8"),
+  ]);
+  assert.match(page, /使用我的当前位置/);
+  assert.match(page, /手动选择/);
+  assert.match(weatherRoute, /api\.open-meteo\.com/);
+  assert.match(weatherRoute, /apparent_temperature/);
+  assert.match(schema, /weatherLatitude/);
+  await access(new URL("../drizzle/0005_breezy_natasha_romanoff.sql", import.meta.url));
+});
