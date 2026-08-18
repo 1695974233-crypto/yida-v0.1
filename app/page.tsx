@@ -49,13 +49,14 @@ function buildOutfits(garments: Garment[], scene: string | null, styles: string[
   const available = garments.filter((item) => !item.dirty && !(constraints.avoid ?? []).some((term) => item.name.includes(term) || item.category.includes(term)));
   const tops = available.filter((item) => item.category === "上衣");
   const bottoms = available.filter((item) => item.category === "下装");
+  const dresses = available.filter((item) => item.category === "连衣裙");
   const shoes = available.filter((item) => item.category === "鞋子");
   const outers = available.filter((item) => item.category === "外套");
-  if (!tops.length || !bottoms.length || !shoes.length) return [];
+  if (((!tops.length || !bottoms.length) && !dresses.length) || !shoes.length) return [];
 
   const candidates: Outfit[] = [];
-  for (const top of tops) for (const bottom of bottoms) for (const shoe of shoes) for (const outer of [undefined, ...outers]) {
-    const pieces = [top, bottom, ...(outer ? [outer] : []), shoe];
+  function addCandidate(basePieces: Garment[], outer?: Garment) {
+    const pieces = [...basePieces.slice(0, -1), ...(outer ? [outer] : []), basePieces[basePieces.length - 1]];
     let score = 62;
     const warmth = pieces.reduce((sum, item) => sum + item.warmth, 0);
     const warmthRange = constraints.warmth === "warmer" ? [7, 11] : constraints.warmth === "lighter" ? [3, 6] : [6, 9];
@@ -85,6 +86,8 @@ function buildOutfits(garments: Garment[], scene: string | null, styles: string[
       itemIds,
     });
   }
+  for (const top of tops) for (const bottom of bottoms) for (const shoe of shoes) for (const outer of [undefined, ...outers]) addCandidate([top, bottom, shoe], outer);
+  for (const dress of dresses) for (const shoe of shoes) for (const outer of [undefined, ...outers]) addCandidate([dress, shoe], outer);
   const sorted = candidates.sort((a, b) => b.score - a.score);
   const chosen: Outfit[] = [];
   for (const candidate of sorted) {
@@ -122,7 +125,7 @@ function GarmentArt({ garment, compact = false }: { garment: Garment; compact?: 
   }
   return (
     <div className={`garment-art ${compact ? "compact" : ""}`} style={{ background: garment.color }} aria-hidden="true">
-      <span className={`clothing-shape ${garment.category === "下装" ? "bottom" : garment.category === "鞋子" ? "shoe" : garment.category === "外套" ? "coat" : "top"}`} />
+      <span className={`clothing-shape ${garment.category === "下装" ? "bottom" : garment.category === "鞋子" ? "shoe" : garment.category === "外套" ? "coat" : garment.category === "连衣裙" ? "dress" : "top"}`} />
     </div>
   );
 }
@@ -142,6 +145,7 @@ export default function Home() {
   const [requestConstraints, setRequestConstraints] = useState<RequestConstraints>({});
   const [wardrobeFilter, setWardrobeFilter] = useState("全部");
   const [uploadOpen, setUploadOpen] = useState(false);
+  const [editingGarmentId, setEditingGarmentId] = useState<number | null>(null);
   const [uploadPreview, setUploadPreview] = useState<string | null>(null);
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [imageKey, setImageKey] = useState<string | null>(null);
@@ -240,6 +244,66 @@ export default function Home() {
     if (ok) showToast(item?.dirty ? "已恢复到可用衣柜" : "已放入脏衣篓，3 天内不再推荐");
   }
 
+  function closeGarmentModal() {
+    setUploadOpen(false);
+    setEditingGarmentId(null);
+    setUploadPreview(null);
+    setUploadFile(null);
+    setImageKey(null);
+    setProcessedImageKey(null);
+  }
+
+  function openAddGarment() {
+    setEditingGarmentId(null);
+    setUploadPreview(null);
+    setUploadFile(null);
+    setImageKey(null);
+    setProcessedImageKey(null);
+    setNewCategory("上衣");
+    setNewColor("米白");
+    setGarmentDraft({ name: "", category: "上衣", colorName: "米白", colorHex: "#eeeae2", material: "待确认", pattern: "纯色", warmth: 2, styleTags: [], sceneTags: ["上班", "约会", "休闲"], weatherTags: ["常规"], confidence: 0, warnings: [] });
+    setUploadOpen(true);
+  }
+
+  function openEditGarment(garment: Garment) {
+    const metaParts = garment.meta.split(" · ");
+    setEditingGarmentId(garment.id);
+    setUploadPreview(garment.image ?? null);
+    setUploadFile(null);
+    setNewCategory(garment.category);
+    setNewColor(garment.colorName);
+    setGarmentDraft({
+      name: garment.name,
+      category: garment.category,
+      colorName: garment.colorName,
+      colorHex: garment.color,
+      material: metaParts[0] ?? "待确认",
+      pattern: metaParts[1] ?? "待确认",
+      warmth: garment.warmth,
+      styleTags: garment.styleTags,
+      sceneTags: garment.sceneTags,
+      weatherTags: garment.weatherTags,
+      confidence: 100,
+      warnings: [],
+    });
+    setUploadOpen(true);
+  }
+
+  function toggleGarmentScene(sceneName: string) {
+    setGarmentDraft((current) => ({
+      ...current,
+      sceneTags: current.sceneTags.includes(sceneName)
+        ? current.sceneTags.filter((item) => item !== sceneName)
+        : [...current.sceneTags, sceneName],
+    }));
+  }
+
+  async function deleteGarment(garment: Garment) {
+    if (!window.confirm(`确定删除“${garment.name}”吗？真实衣物的照片也会一起删除。`)) return;
+    const ok = await persist({ action: "delete_garment", garmentId: garment.id });
+    if (ok) showToast("衣服及相关照片已删除");
+  }
+
   async function handleUpload(event: ChangeEvent<HTMLInputElement>) {
     const selected = event.target.files?.[0];
     if (!selected) return;
@@ -288,7 +352,8 @@ export default function Home() {
   async function saveGarment() {
     const colorMap: Record<string, string> = { 米白: "#eeeae2", 黑色: "#292927", 灰色: "#858681", 蓝色: "#66819b", 棕色: "#745b48", 其他: "#d8d0c2" };
     const ok = await persist({
-      action: "add_garment",
+      action: editingGarmentId === null ? "add_garment" : "update_garment",
+      garmentId: editingGarmentId,
       name: garmentDraft.name.trim() || `${newColor}${newCategory}`,
       category: newCategory,
       color: garmentDraft.colorHex || colorMap[newColor] || colorMap.其他,
@@ -305,13 +370,10 @@ export default function Home() {
       recognitionConfidence: garmentDraft.confidence,
     });
     if (ok) {
-      setUploadOpen(false);
-      setUploadPreview(null);
-      setUploadFile(null);
-      setImageKey(null);
-      setProcessedImageKey(null);
+      const wasEditing = editingGarmentId !== null;
+      closeGarmentModal();
       setTab("wardrobe");
-      showToast("衣服照片和你确认的信息已保存");
+      showToast(wasEditing ? "衣服信息已更新" : "衣服照片和你确认的信息已保存");
     }
   }
 
@@ -465,20 +527,20 @@ export default function Home() {
                   </div>
                 </article>
               );
-            }) : <div className="empty-state recommendation-empty"><span>▦</span><h3>还缺少搭配需要的衣服</h3><p>至少需要一件上衣、一件下装和一双鞋。</p><button className="upload-button" onClick={() => setCatalogOpen(true)}>从虚拟衣柜添加</button></div>}
+            }) : <div className="empty-state recommendation-empty"><span>▦</span><h3>还缺少搭配需要的衣服</h3><p>需要“上衣＋下装”或连衣裙，再搭配一双鞋。</p><button className="upload-button" onClick={() => setCatalogOpen(true)}>从虚拟衣柜添加</button></div>}
           </div>
         </section>
       )}
 
       {tab === "wardrobe" && (
         <section className="screen wardrobe-screen">
-          <div className="page-title-row"><div><p className="eyebrow">你的数字衣橱</p><h1>我的衣柜</h1><p>{availableCount} 件可用 · {garments.length - availableCount} 件在脏衣篓</p></div><button className="upload-button" onClick={() => setUploadOpen(true)}>＋ 添加衣服</button></div>
+          <div className="page-title-row"><div><p className="eyebrow">你的数字衣橱</p><h1>我的衣柜</h1><p>{availableCount} 件可用 · {garments.length - availableCount} 件在脏衣篓</p></div><button className="upload-button" onClick={openAddGarment}>＋ 添加衣服</button></div>
           <button className="virtual-closet-entry" onClick={() => setCatalogOpen(true)}><span>▦</span><div><strong>从虚拟衣柜添加基础款</strong><small>不用拍照，勾选“我有类似款”即可参与推荐</small></div><b>›</b></button>
           <div className="wardrobe-summary">
             <div><span className="summary-icon">✦</span><div><strong>本周穿到 7 件</strong><small>比上周多激活 2 件旧衣服</small></div></div><span className="progress-ring">68%</span>
           </div>
           <div className="filter-row">
-            {["全部", "上衣", "下装", "外套", "鞋子", "脏衣篓"].map((filter) => <button key={filter} className={wardrobeFilter === filter ? "active" : ""} onClick={() => setWardrobeFilter(filter)}>{filter}</button>)}
+            {["全部", "上衣", "下装", "连衣裙", "外套", "鞋子", "脏衣篓"].map((filter) => <button key={filter} className={wardrobeFilter === filter ? "active" : ""} onClick={() => setWardrobeFilter(filter)}>{filter}</button>)}
           </div>
           {filteredGarments.length ? (
             <div className="garment-grid">
@@ -486,7 +548,7 @@ export default function Home() {
                 <article className={`garment-card ${garment.dirty ? "dirty" : ""}`} key={garment.id}>
                   <GarmentArt garment={garment} />
                   {garment.dirty && <span className="dirty-badge">清洗中</span>}
-                  <div className="garment-copy"><small>{garment.category} · {garment.colorName}</small><h3>{garment.name}</h3><p>{garment.meta}</p><button onClick={() => toggleDirty(garment.id)}>{garment.dirty ? "恢复可用" : "放入脏衣篓"}</button></div>
+                  <div className="garment-copy"><small>{garment.category} · {garment.colorName}</small><h3>{garment.name}</h3><p>{garment.meta}</p><div className="scene-tags" aria-label="适用场景">{(garment.sceneTags.length ? garment.sceneTags : ["日常"]).slice(0, 4).map((tag) => <span key={tag}>{tag}</span>)}</div><div className="garment-actions"><button onClick={() => toggleDirty(garment.id)}>{garment.dirty ? "恢复可用" : "放入脏衣篓"}</button><button onClick={() => openEditGarment(garment)}>编辑</button><button className="danger" onClick={() => deleteGarment(garment)}>删除</button></div></div>
                 </article>
               ))}
             </div>
@@ -565,9 +627,11 @@ export default function Home() {
       )}
 
       {uploadOpen && (
-        <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setUploadOpen(false); }}>
+        <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) closeGarmentModal(); }}>
           <div className="upload-modal" role="dialog" aria-modal="true" aria-labelledby="upload-title">
-            <div className="modal-handle" /><div className="modal-heading"><div><p className="eyebrow">放进你的数字衣柜</p><h2 id="upload-title">添加一件衣服</h2></div><button onClick={() => setUploadOpen(false)} aria-label="关闭">×</button></div>
+            <div className="modal-handle" /><div className="modal-heading"><div><p className="eyebrow">{editingGarmentId === null ? "放进你的数字衣柜" : "修改衣物信息"}</p><h2 id="upload-title">{editingGarmentId === null ? "添加一件衣服" : "编辑这件衣服"}</h2></div><button onClick={closeGarmentModal} aria-label="关闭">×</button></div>
+            {editingGarmentId !== null && uploadPreview && <div className="edit-image-preview"><img src={uploadPreview} alt="当前衣物" /></div>}
+            {editingGarmentId === null && <>
             <label className={`upload-zone ${uploadPreview ? "has-image" : ""}`}>
               {uploadPreview ? <><img src={uploadPreview} alt="待上传衣服预览" />{analyzing && <span className="image-processing">AI 正在看这件衣服…</span>}</> : <><span>＋</span><strong>拍照或从相册选择</strong><small>尽量只拍一件，保持光线自然</small></>}
               <input type="file" accept="image/jpeg,image/png,image/webp" onChange={handleUpload} />
@@ -575,11 +639,13 @@ export default function Home() {
             <label className="seedream-option"><input type="checkbox" aria-label="用 Seedream 整理展示图" checked={enhanceWithSeedream} onChange={(event) => setEnhanceWithSeedream(event.target.checked)} /><span><strong>用 Seedream 整理展示图（可选）</strong><small>默认关闭；开启后会产生图片处理费用，用于去除杂乱背景并平整展示，原图仍会保留</small></span></label>
             <div className={`recognition-note ${aiReady === false ? "setup-needed" : ""}`}><span>✦</span><div><strong>{analyzing ? "正在识别衣物属性…" : imageKey ? (aiReady ? `识别完成 · ${garmentDraft.confidence}% 可信` : "演示识别 · 等待配置模型密钥") : "上传后自动识别类型、颜色、材质和适用场景"}</strong>{garmentDraft.warnings.length > 0 && <small>{garmentDraft.warnings.join(" ")}</small>}{recognitionsRemaining !== null && <small>今日还可识别 {recognitionsRemaining} 次</small>}</div></div>
             {uploadFile && !analyzing && <button className="reanalyze-button" onClick={() => analyzeSelectedFile()}>↻ 按当前设置重新识别{enhanceWithSeedream ? "并整理图片" : ""}</button>}
+            </>}
             <div className="single-form-row"><label>衣服名称<input value={garmentDraft.name} onChange={(event) => setGarmentDraft((current) => ({ ...current, name: event.target.value }))} placeholder="例如：浅蓝牛津纺衬衫" maxLength={30} /></label></div>
             <div className="form-row"><label>衣服类型<select value={newCategory} onChange={(event) => { setNewCategory(event.target.value); setGarmentDraft((current) => ({ ...current, category: event.target.value })); }}><option>上衣</option><option>下装</option><option>外套</option><option>连衣裙</option><option>鞋子</option><option>配饰</option></select></label><label>主要颜色<select value={newColor} onChange={(event) => { setNewColor(event.target.value); setGarmentDraft((current) => ({ ...current, colorName: event.target.value })); }}>{Array.from(new Set([newColor, "米白", "白色", "黑色", "灰色", "蓝色", "棕色", "粉色", "红色", "绿色", "其他"])).map((color) => <option key={color}>{color}</option>)}</select></label></div>
             <div className="form-row"><label>材质<input value={garmentDraft.material} onChange={(event) => setGarmentDraft((current) => ({ ...current, material: event.target.value }))} maxLength={20} /></label><label>图案<input value={garmentDraft.pattern} onChange={(event) => setGarmentDraft((current) => ({ ...current, pattern: event.target.value }))} maxLength={20} /></label></div>
+            <fieldset className="scene-selector"><legend>适用场景（可多选）</legend><div>{scenes.map((sceneName) => <button type="button" key={sceneName} className={garmentDraft.sceneTags.includes(sceneName) ? "selected" : ""} onClick={() => toggleGarmentScene(sceneName)}>{garmentDraft.sceneTags.includes(sceneName) ? "✓ " : ""}{sceneName}</button>)}</div></fieldset>
             <p className="confirmation-hint">AI 识别可能出错，请确认后再保存。展示图不会替代原始照片。</p>
-            <button className="primary-button" disabled={saving || analyzing || !garmentDraft.name.trim()} onClick={saveGarment}>{saving ? "正在保存…" : analyzing ? "正在识别…" : "确认信息，加入衣柜"}</button>
+            <button className="primary-button" disabled={saving || analyzing || !garmentDraft.name.trim() || !garmentDraft.sceneTags.length} onClick={saveGarment}>{saving ? "正在保存…" : analyzing ? "正在识别…" : editingGarmentId === null ? "确认信息，加入衣柜" : "保存修改"}</button>
           </div>
         </div>
       )}

@@ -190,7 +190,29 @@ export async function POST(request: Request) {
     const payload = await request.json() as Record<string, unknown>;
     const db = getDb();
 
-    if (payload.action === "toggle_dirty" && typeof payload.garmentId === "number") {
+    if (payload.action === "delete_garment" && typeof payload.garmentId === "number") {
+      const [item] = await db.select().from(garments).where(and(eq(garments.id, payload.garmentId), eq(garments.userId, user.id))).limit(1);
+      if (item) {
+        const bucket = (env as unknown as { GARMENT_IMAGES?: R2Bucket }).GARMENT_IMAGES;
+        const imageKeys = [item.imageKey, item.processedImageKey].filter((key): key is string => Boolean(key && key.startsWith(`${user.id}/`)));
+        if (bucket) await Promise.all(imageKeys.map((key) => bucket.delete(key)));
+        await db.delete(garments).where(and(eq(garments.id, item.id), eq(garments.userId, user.id)));
+      }
+    } else if (payload.action === "update_garment" && typeof payload.garmentId === "number" && typeof payload.name === "string" && typeof payload.category === "string") {
+      const material = typeof payload.material === "string" ? payload.material.slice(0, 20) : "待确认";
+      const pattern = typeof payload.pattern === "string" ? payload.pattern.slice(0, 20) : "待确认";
+      await db.update(garments).set({
+        name: payload.name.slice(0, 30),
+        category: payload.category.slice(0, 12),
+        color: typeof payload.color === "string" ? payload.color : "#d8d0c2",
+        colorName: typeof payload.colorName === "string" ? payload.colorName.slice(0, 12) : "其他",
+        meta: `${material} · ${pattern} · 已确认`,
+        warmth: typeof payload.warmth === "number" ? Math.min(5, Math.max(1, Math.round(payload.warmth))) : 2,
+        styleTags: JSON.stringify(Array.isArray(payload.styleTags) ? payload.styleTags.slice(0, 5) : []),
+        sceneTags: JSON.stringify(Array.isArray(payload.sceneTags) ? payload.sceneTags.slice(0, 5) : []),
+        weatherTags: JSON.stringify(Array.isArray(payload.weatherTags) ? payload.weatherTags.slice(0, 5) : ["常规"]),
+      }).where(and(eq(garments.id, payload.garmentId), eq(garments.userId, user.id)));
+    } else if (payload.action === "toggle_dirty" && typeof payload.garmentId === "number") {
       const [item] = await db.select().from(garments).where(and(eq(garments.id, payload.garmentId), eq(garments.userId, user.id))).limit(1);
       if (item) await db.update(garments).set({ dirtyUntil: item.dirtyUntil && item.dirtyUntil > new Date().toISOString() ? null : new Date(Date.now() + 3 * 86400000).toISOString() }).where(and(eq(garments.id, item.id), eq(garments.userId, user.id)));
     } else if (payload.action === "add_catalog" && typeof payload.catalogKey === "string") {
