@@ -1,8 +1,14 @@
 import { env } from "cloudflare:workers";
 
-const DAILY_VISUALIZATION_LIMIT = 3;
+const DAILY_VISUALIZATION_LIMIT = 10;
 
-type RuntimeEnv = { DB?: D1Database };
+type RuntimeEnv = { DB?: D1Database; YIDA_DEVELOPER_EMAILS?: string };
+
+function isDeveloper(email?: string) {
+  if (!email) return false;
+  const configured = (env as unknown as RuntimeEnv).YIDA_DEVELOPER_EMAILS ?? "";
+  return configured.split(",").some((item) => item.trim().toLowerCase() === email.trim().toLowerCase());
+}
 
 function chinaDateKey(now = new Date()) {
   return new Date(now.getTime() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10);
@@ -18,17 +24,19 @@ async function ensureVisualizationTable(database: D1Database) {
   )`).run();
 }
 
-export async function checkVisualizationAllowance(visitorId: string) {
+export async function checkVisualizationAllowance(visitorId: string, email?: string) {
+  if (isDeveloper(email)) return { allowed: true as const, limit: null, remaining: null, developer: true as const };
   const database = (env as unknown as RuntimeEnv).DB;
   if (!database) throw new Error("AI 模特额度服务暂时不可用");
   await ensureVisualizationTable(database);
   const usageDate = chinaDateKey();
   const current = await database.prepare("SELECT count FROM visualization_usage WHERE visitor_id = ? AND usage_date = ?").bind(visitorId, usageDate).first<{ count: number }>();
   const count = current?.count ?? 0;
-  return { allowed: count < DAILY_VISUALIZATION_LIMIT, limit: DAILY_VISUALIZATION_LIMIT, remaining: Math.max(0, DAILY_VISUALIZATION_LIMIT - count) };
+  return { allowed: count < DAILY_VISUALIZATION_LIMIT, limit: DAILY_VISUALIZATION_LIMIT, remaining: Math.max(0, DAILY_VISUALIZATION_LIMIT - count), developer: false as const };
 }
 
-export async function recordSuccessfulVisualization(visitorId: string) {
+export async function recordSuccessfulVisualization(visitorId: string, email?: string) {
+  if (isDeveloper(email)) return { allowed: true as const, limit: null, remaining: null, developer: true as const };
   const database = (env as unknown as RuntimeEnv).DB;
   if (!database) throw new Error("AI 模特额度服务暂时不可用");
   await ensureVisualizationTable(database);
@@ -40,6 +48,6 @@ export async function recordSuccessfulVisualization(visitorId: string) {
       updated_at = CURRENT_TIMESTAMP
     WHERE visualization_usage.count < ?
     RETURNING count`).bind(visitorId, usageDate, DAILY_VISUALIZATION_LIMIT).first<{ count: number }>();
-  if (!result) return { allowed: false as const, limit: DAILY_VISUALIZATION_LIMIT, remaining: 0 };
-  return { allowed: true as const, limit: DAILY_VISUALIZATION_LIMIT, remaining: DAILY_VISUALIZATION_LIMIT - result.count };
+  if (!result) return { allowed: false as const, limit: DAILY_VISUALIZATION_LIMIT, remaining: 0, developer: false as const };
+  return { allowed: true as const, limit: DAILY_VISUALIZATION_LIMIT, remaining: DAILY_VISUALIZATION_LIMIT - result.count, developer: false as const };
 }

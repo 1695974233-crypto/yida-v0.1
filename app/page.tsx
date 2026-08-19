@@ -555,13 +555,13 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ itemIds: outfit.itemIds }),
       });
-      const data = await response.json() as { error?: string; imageUrl?: string; needsProfile?: boolean; remaining?: number };
+      const data = await response.json() as { error?: string; imageUrl?: string; needsProfile?: boolean; remaining?: number; developer?: boolean };
       if (!response.ok || !data.imageUrl) {
         if (data.needsProfile) setBodyProfileOpen(true);
         throw new Error(data.error ?? "AI 模特生成失败");
       }
       setVisualizedLooks((current) => ({ ...current, [outfit.key]: data.imageUrl! }));
-      showToast(typeof data.remaining === "number" ? `AI 模特已生成，今天还可生成 ${data.remaining} 次` : "AI 模特已生成");
+      showToast(data.developer ? "AI 模特已生成 · 开发者模式不计次数" : typeof data.remaining === "number" ? `AI 模特已生成，今天还可生成 ${data.remaining} 次` : "AI 模特已生成");
     } catch (error) {
       const message = error instanceof Error ? error.message : "AI 模特生成失败";
       setVisualizationErrors((current) => ({ ...current, [outfit.key]: message }));
@@ -1013,7 +1013,7 @@ export default function Home() {
               {fullBodyImageUrl ? <div className="person-reference-ready"><img src={fullBodyImageUrl} alt="已上传的本人全身参考照" /><span><b>已启用真人试穿</b><small>照片仅用于生成你的试穿效果</small></span><button type="button" disabled={fullBodyUploading} onClick={removeFullBodyPhoto}>删除</button></div> : <label className="person-reference-upload"><input type="file" accept="image/jpeg,image/png,image/webp" onChange={uploadFullBodyPhoto} disabled={fullBodyUploading} /><span>{fullBodyUploading ? "正在上传…" : "＋ 上传本人全身照"}</span></label>}
             </section>
             <button className="primary-button" type="submit" disabled={saving}>保存身体资料</button>
-            <p className="body-profile-limit">AI 模特由 Seedream 生成，每位访客每天最多生成 3 套；相同搭配会直接使用已生成结果。</p>
+            <p className="body-profile-limit">AI 模特由 Seedream 生成，普通用户每天最多生成 10 套，开发者账号不限次数；相同搭配会直接使用已生成结果。</p>
           </form>
         </div>
       )}

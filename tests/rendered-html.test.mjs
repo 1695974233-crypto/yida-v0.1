@@ -107,6 +107,7 @@ test("switches to real wardrobe photos and supports Seedream mannequin previews"
   assert.match(page, /上传本人全身照/);
   assert.match(visualizeRoute, /checkVisualizationAllowance/);
   assert.match(visualizeRoute, /recordSuccessfulVisualization/);
+  assert.match(visualizeRoute, /今天已成功生成 10 套/);
   assert.match(visualizeRoute, /fullBodyImageKey/);
   assert.match(arkAdapter, /visualizeOutfitWithSeedream/);
   assert.match(arkAdapter, /真人虚拟试穿生成器/);

@@ -53,8 +53,8 @@ export async function POST(request: Request) {
       return Response.json({ imageUrl: `/api/garments/image?key=${encodeURIComponent(outputKey)}`, cached: true });
     }
 
-    const allowance = await checkVisualizationAllowance(visitor.id);
-    if (!allowance.allowed) return Response.json({ error: "今天已成功生成 3 套 AI 试穿，请明天再试", remaining: 0 }, { status: 429 });
+    const allowance = await checkVisualizationAllowance(visitor.id, visitor.email);
+    if (!allowance.allowed) return Response.json({ error: "今天已成功生成 10 套 AI 试穿，请明天再试", remaining: 0 }, { status: 429 });
     const imageDataUrls = await Promise.all(ordered.map(async (item) => {
       const object = await runtime.GARMENT_IMAGES!.get(item.processedImageKey ?? item.imageKey!);
       if (!object) throw new Error(`没有找到“${item.name}”的图片`);
@@ -75,8 +75,8 @@ export async function POST(request: Request) {
       httpMetadata: { contentType: "image/png", cacheControl: "private, max-age=3600" },
       customMetadata: { userId: visitor.id, sourceIds: itemIds.join(","), mode: personReferenceDataUrl ? "person" : "mannequin", model: runtime.ARK_SEEDREAM_MODEL ?? "doubao-seedream-5-0-260128" },
     });
-    const usage = await recordSuccessfulVisualization(visitor.id);
-    return Response.json({ imageUrl: `/api/garments/image?key=${encodeURIComponent(outputKey)}`, remaining: usage.remaining });
+    const usage = await recordSuccessfulVisualization(visitor.id, visitor.email);
+    return Response.json({ imageUrl: `/api/garments/image?key=${encodeURIComponent(outputKey)}`, remaining: usage.remaining, developer: usage.developer });
   } catch (error) {
     console.error("outfit visualization failed", error);
     return Response.json({ error: error instanceof Error ? error.message : "AI 模特生成失败" }, { status: 500 });
