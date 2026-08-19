@@ -1,6 +1,7 @@
 "use client";
 
 import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from "react";
+import { createClient } from "@supabase/supabase-js";
 import { defaultCatalogKeys, virtualCatalog } from "./catalog";
 
 type Tab = "today" | "wardrobe" | "discover" | "profile";
@@ -22,7 +23,8 @@ type Garment = {
 };
 
 type FeedbackRecord = { outfitKey: string; action: string };
-type AccountData = { id: string; email: string; name: string };
+type AccountData = { id: string; email: string; name: string; provider?: "supabase" | "chatgpt" };
+type AuthView = "login" | "register" | "forgot" | "reset";
 type Outfit = { key: string; title: string; tag: string; score: number; colors: string[]; items: string; reason: string; itemIds: number[] };
 type RequestConstraints = { scene?: string; warmth?: "warmer" | "lighter"; formality?: "formal" | "casual"; avoid?: string[]; colors?: string[] };
 type ChatMessage = { id: number; role: "user" | "assistant"; content: string; createdAt?: string };
@@ -334,7 +336,20 @@ function GarmentArt({ garment, compact = false }: { garment: Garment; compact?: 
 }
 
 export default function Home() {
+  const supabase = useMemo(() => {
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const key = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
+    return url && key ? createClient(url, key, { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true } }) : null;
+  }, []);
   const [account, setAccount] = useState<AccountData | null | undefined>(undefined);
+  const [authView, setAuthView] = useState<AuthView>("login");
+  const [authName, setAuthName] = useState("");
+  const [authEmail, setAuthEmail] = useState("");
+  const [authPassword, setAuthPassword] = useState("");
+  const [authPasswordVisible, setAuthPasswordVisible] = useState(false);
+  const [authBusy, setAuthBusy] = useState(false);
+  const [authError, setAuthError] = useState("");
+  const [authNotice, setAuthNotice] = useState("");
   const [onboarding, setOnboarding] = useState(true);
   const [onboardingStep, setOnboardingStep] = useState(0);
   const [tab, setTab] = useState<Tab>("today");
@@ -415,15 +430,55 @@ export default function Home() {
   }, [currentSeason, disliked, inspirationSavedOnly, modelPresentation, saved, weather]);
 
   useEffect(() => {
-    fetch("/api/auth/me", { cache: "no-store" })
-      .then(async (response) => {
-        if (!response.ok) return null;
-        const data = await response.json() as { user?: AccountData };
-        return data.user ?? null;
-      })
-      .then(setAccount)
-      .catch(() => setAccount(null));
-  }, []);
+    let active = true;
+    async function useSupabaseSession(accessToken: string) {
+      const response = await fetch("/api/auth/session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ accessToken }),
+      });
+      const data = await response.json() as { user?: AccountData; error?: string };
+      if (!response.ok || !data.user) throw new Error(data.error ?? "登录状态验证失败");
+      if (active) setAccount(data.user);
+    }
+    async function initializeAuth() {
+      if (supabase) {
+        const { data } = await supabase.auth.getSession();
+        if (data.session) {
+          if (window.location.hash.includes("type=recovery")) {
+            setAuthView("reset");
+            if (active) setAccount(null);
+            return;
+          }
+          await useSupabaseSession(data.session.access_token);
+          return;
+        }
+      }
+      const useChatGPT = new URLSearchParams(window.location.search).get("auth") === "chatgpt";
+      if (useChatGPT) {
+        const response = await fetch("/api/auth/me?provider=chatgpt", { cache: "no-store" });
+        const data = response.ok ? await response.json() as { user?: AccountData } : null;
+        if (active) setAccount(data?.user ?? null);
+        return;
+      }
+      if (active) setAccount(null);
+    }
+    void initializeAuth().catch(() => { if (active) setAccount(null); });
+    const subscription = supabase?.auth.onAuthStateChange((event, session) => {
+      if (event === "SIGNED_OUT") {
+        void fetch("/api/auth/session", { method: "DELETE" });
+        if (active) setAccount(null);
+      } else if (event === "PASSWORD_RECOVERY") {
+        setAuthView("reset");
+        setAuthError("");
+        setAuthNotice("验证成功，请设置一个新密码。");
+        if (active) setAccount(null);
+      } else if (session) {
+        window.setTimeout(() => { void useSupabaseSession(session.access_token).catch(() => { if (active) setAccount(null); }); }, 0);
+      }
+    }).data.subscription;
+    return () => { active = false; subscription?.unsubscribe(); };
+  }, [supabase]);
 
   useEffect(() => {
     if (!expandedLook) return;
@@ -861,6 +916,91 @@ export default function Home() {
     if (ok) showToast("本次对话要求已清除");
   }
 
+  function readableAuthError(message: string) {
+    if (/Invalid login credentials/i.test(message)) return "邮箱或密码不正确";
+    if (/Email not confirmed/i.test(message)) return "请先打开验证邮件完成邮箱确认";
+    if (/User already registered/i.test(message)) return "这个邮箱已经注册，请直接登录";
+    if (/Password should be at least/i.test(message)) return "密码至少需要 6 位";
+    if (/provider is not enabled|Unsupported provider/i.test(message)) return "该登录方式尚未在 Supabase 中开通";
+    if (/Email rate limit exceeded|rate limit/i.test(message)) return "验证邮件发送过于频繁，请稍后再试";
+    return message || "操作失败，请稍后重试";
+  }
+
+  async function submitEmailAuth(event: FormEvent) {
+    event.preventDefault();
+    if (!supabase || authBusy) return;
+    const email = authEmail.trim().toLowerCase();
+    if (authView !== "reset" && !email) return setAuthError("请输入邮箱");
+    setAuthBusy(true);
+    setAuthError("");
+    setAuthNotice("");
+    try {
+      if (authView === "reset") {
+        if (authPassword.length < 6) throw new Error("Password should be at least 6 characters");
+        const { error } = await supabase.auth.updateUser({ password: authPassword });
+        if (error) throw error;
+        const { data } = await supabase.auth.getSession();
+        if (!data.session) throw new Error("重置链接已失效，请重新申请");
+        await fetch("/api/auth/session", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ accessToken: data.session.access_token }),
+        });
+        window.history.replaceState({}, "", window.location.pathname);
+        window.location.reload();
+      } else if (authView === "forgot") {
+        const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo: `${window.location.origin}/` });
+        if (error) throw error;
+        setAuthNotice("重置邮件已发送，请打开邮箱继续操作。测试阶段仅项目成员邮箱能收到邮件。");
+      } else if (authView === "register") {
+        if (authPassword.length < 6) throw new Error("Password should be at least 6 characters");
+        const { data, error } = await supabase.auth.signUp({
+          email,
+          password: authPassword,
+          options: { data: { display_name: authName.trim() || email.split("@")[0] }, emailRedirectTo: `${window.location.origin}/` },
+        });
+        if (error) throw error;
+        setAuthPassword("");
+        if (!data.session) setAuthNotice("注册成功，请打开验证邮件确认邮箱后再登录。");
+      } else {
+        const { error } = await supabase.auth.signInWithPassword({ email, password: authPassword });
+        if (error) throw error;
+        setAuthPassword("");
+      }
+    } catch (error) {
+      setAuthError(readableAuthError(error instanceof Error ? error.message : "登录失败"));
+    } finally {
+      setAuthBusy(false);
+    }
+  }
+
+  async function signInWithSocial(provider: "google" | "github") {
+    if (!supabase || authBusy) return;
+    setAuthBusy(true);
+    setAuthError("");
+    const { error } = await supabase.auth.signInWithOAuth({ provider, options: { redirectTo: `${window.location.origin}/` } });
+    if (error) {
+      setAuthError(readableAuthError(error.message));
+      setAuthBusy(false);
+    }
+  }
+
+  async function signOutAccount() {
+    if (account?.provider === "chatgpt") {
+      window.location.href = "/signout-with-chatgpt?return_to=%2F";
+      return;
+    }
+    setSaving(true);
+    try {
+      await supabase?.auth.signOut();
+      await fetch("/api/auth/session", { method: "DELETE" });
+      setAccount(null);
+      setLoading(true);
+    } finally {
+      setSaving(false);
+    }
+  }
+
   function navTo(next: Tab) {
     setTab(next);
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -871,7 +1011,23 @@ export default function Home() {
   }
 
   if (account === null) {
-    return <main className="auth-shell"><section className="auth-card"><span className="brand-mark">易</span><p className="eyebrow">你的个人 AI 衣柜</p><h1>登录易搭</h1><p>使用 ChatGPT 账号登录后，衣柜、身体资料、偏好和穿搭记录都会保存到你的账号，再次登录即可恢复。</p><a className="chatgpt-login-button" href="/signin-with-chatgpt?return_to=%2F">使用 ChatGPT 账号登录</a><small>登录状态由 ChatGPT 安全管理；在同一浏览器保持登录时，无需重复操作。</small></section></main>;
+    return <main className="auth-shell auth-page"><section className="auth-card auth-form-card">
+      <div className="auth-brand"><span className="brand-mark">易</span><div><strong>易搭</strong><small>你的个人 AI 衣柜</small></div></div>
+      <div className="auth-heading"><p className="eyebrow">每天少纠结一点</p><h1>{authView === "register" ? "创建你的衣柜" : authView === "forgot" ? "找回密码" : authView === "reset" ? "设置新密码" : "欢迎回来"}</h1><p>{authView === "register" ? "注册后，衣柜、偏好和收藏会安全保存在你的账号中。" : authView === "forgot" ? "输入注册邮箱，我们会向你发送密码重置邮件。" : authView === "reset" ? "输入至少 6 位的新密码，保存后即可继续使用易搭。" : "登录后继续查看属于你的衣柜与穿搭建议。"}</p></div>
+      {(authView === "login" || authView === "register") && <div className="auth-tabs"><button className={authView === "login" ? "active" : ""} onClick={() => { setAuthView("login"); setAuthError(""); setAuthNotice(""); }}>邮箱登录</button><button className={authView === "register" ? "active" : ""} onClick={() => { setAuthView("register"); setAuthError(""); setAuthNotice(""); }}>邮箱注册</button></div>}
+      <form className="email-auth-form" onSubmit={submitEmailAuth}>
+        {authView === "register" && <label>怎么称呼你<input type="text" value={authName} onChange={(event) => setAuthName(event.target.value)} placeholder="例如：晚晚" maxLength={30} autoComplete="name" /></label>}
+        {authView !== "reset" && <label>邮箱<input type="email" value={authEmail} onChange={(event) => setAuthEmail(event.target.value)} placeholder="name@example.com" autoComplete="email" required /></label>}
+        {authView !== "forgot" && <label><span>密码{authView === "login" && <button type="button" onClick={() => { setAuthView("forgot"); setAuthError(""); setAuthNotice(""); }}>忘记密码？</button>}</span><div className="password-field"><input type={authPasswordVisible ? "text" : "password"} value={authPassword} onChange={(event) => setAuthPassword(event.target.value)} placeholder={authView === "register" || authView === "reset" ? "至少 6 位" : "输入密码"} minLength={6} autoComplete={authView === "register" || authView === "reset" ? "new-password" : "current-password"} required /><button type="button" onClick={() => setAuthPasswordVisible((current) => !current)} aria-label={authPasswordVisible ? "隐藏密码" : "显示密码"}>{authPasswordVisible ? "隐藏" : "显示"}</button></div></label>}
+        {authError && <p className="auth-message error" role="alert">{authError}</p>}
+        {authNotice && <p className="auth-message notice" role="status">{authNotice}</p>}
+        <button className="email-auth-submit" type="submit" disabled={authBusy || !supabase}>{authBusy ? "请稍候…" : authView === "register" ? "注册" : authView === "forgot" ? "发送重置邮件" : authView === "reset" ? "保存新密码" : "登录"}</button>
+        {authView === "forgot" && <button className="auth-back-button" type="button" onClick={() => { setAuthView("login"); setAuthError(""); setAuthNotice(""); }}>返回邮箱登录</button>}
+      </form>
+      {(authView === "login" || authView === "register") && <><div className="auth-divider"><span>或者使用</span></div><div className="social-auth-buttons"><button onClick={() => signInWithSocial("google")} disabled={authBusy}><span className="google-mark">G</span>Google</button><button onClick={() => signInWithSocial("github")} disabled={authBusy}><span className="github-mark">●</span>GitHub</button></div></>}
+      <a className="legacy-login" href="/signin-with-chatgpt?return_to=%2F%3Fauth%3Dchatgpt">已有易搭测试数据？使用原 ChatGPT 账号迁移</a>
+      <small className="auth-terms">登录即表示你同意易搭保存衣柜、偏好与穿搭反馈；照片仍由你自主上传和删除。</small>
+    </section><aside className="auth-visual" aria-hidden="true"><span className="auth-visual-logo">易搭</span><div className="auth-visual-copy"><p>天气、场景、可用衣物</p><h2>今天穿什么，<br />问问你的衣柜。</h2></div><div className="auth-outfit-cards"><i /><i /><i /></div></aside></main>;
   }
 
   return (
@@ -1082,7 +1238,7 @@ export default function Home() {
           <div className="profile-hero"><div className="large-avatar">{account.name.slice(0, 1).toUpperCase()}</div><div><h1>{account.name.includes("@") ? "易搭用户" : account.name}</h1><p>{account.email}</p></div><button onClick={() => { setOnboarding(true); setOnboardingStep(0); }}>重新体验引导</button></div>
           <div className="stat-grid"><div><strong>{recommendationGarments.length}</strong><span>{hasRealGarments ? "真实单品" : "体验单品"}</span></div><div><strong>{saved.length}</strong><span>收藏搭配</span></div><div><strong>{worn.length + 7}</strong><span>本月已穿</span></div></div>
           <section className="profile-section"><div className="section-heading"><div><p className="eyebrow">最近 30 天</p><h2>穿搭记录</h2></div><button className="clear-button">查看全部</button></div><div className="history-list"><div><span className="history-date">今天</span><div className="mini-palette"><i style={{ background: "#b8cbd4" }} /><i style={{ background: "#595b5c" }} /><i style={{ background: "#e7ddca" }} /></div><p>雨天也清爽</p><b>已穿 ✓</b></div><div><span className="history-date">周六</span><div className="mini-palette"><i style={{ background: "#d9c8ad" }} /><i style={{ background: "#66819b" }} /></div><p>舒服不费力</p><b>已收藏</b></div></div></section>
-          <section className="settings-list"><button onClick={() => setBodyProfileOpen(true)}><span>♙</span><div><strong>AI 模特身体资料</strong><small>{bodyHeight && bodyWeight ? `${bodyHeight}cm · ${bodyWeight}kg · ${bodyShape}` : "填写身高、体重和身材特点"}</small></div><b>›</b></button><button><span>♡</span><div><strong>我的偏爱穿搭</strong><small>收藏与喜欢过的搭配</small></div><b>›</b></button><button><span>♨</span><div><strong>脏衣篓设置</strong><small>默认 3 天后恢复可用</small></div><b>›</b></button><button><span>◌</span><div><strong>个人偏好</strong><small>{styles.join("、")}</small></div><b>›</b></button><button><span>⌁</span><div><strong>隐私与数据</strong><small>定位、照片与删除设置</small></div><b>›</b></button><a className="logout-setting" href="/signout-with-chatgpt?return_to=%2F"><span>↪</span><div><strong>退出登录</strong><small>退出当前 ChatGPT 账号</small></div><b>›</b></a></section>
+          <section className="settings-list"><button onClick={() => setBodyProfileOpen(true)}><span>♙</span><div><strong>AI 模特身体资料</strong><small>{bodyHeight && bodyWeight ? `${bodyHeight}cm · ${bodyWeight}kg · ${bodyShape}` : "填写身高、体重和身材特点"}</small></div><b>›</b></button><button><span>♡</span><div><strong>我的偏爱穿搭</strong><small>收藏与喜欢过的搭配</small></div><b>›</b></button><button><span>♨</span><div><strong>脏衣篓设置</strong><small>默认 3 天后恢复可用</small></div><b>›</b></button><button><span>◌</span><div><strong>个人偏好</strong><small>{styles.join("、")}</small></div><b>›</b></button><button><span>⌁</span><div><strong>隐私与数据</strong><small>定位、照片与删除设置</small></div><b>›</b></button><button className="logout-setting" onClick={signOutAccount}><span>↪</span><div><strong>退出登录</strong><small>退出当前账号并返回登录页</small></div><b>›</b></button></section>
         </section>
       )}
 

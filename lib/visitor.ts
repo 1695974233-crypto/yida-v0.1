@@ -1,5 +1,6 @@
 import { getChatGPTUser } from "../app/chatgpt-auth";
 import { env } from "cloudflare:workers";
+import { getSupabaseUser } from "./supabase-auth";
 
 export type Visitor = { id: string; name: string; email?: string };
 const visitorCookiePattern = /^visitor-[a-f0-9]{32}$/;
@@ -24,6 +25,48 @@ function bytesToHex(bytes: Uint8Array) {
 }
 
 export async function getVisitor(request: Request): Promise<Visitor> {
+  const externalUser = await getSupabaseUser(request);
+  if (externalUser) {
+    const database = (env as unknown as { DB?: D1Database }).DB;
+    const fallbackId = `supabase-${externalUser.id}`;
+    if (!database) return { id: fallbackId, name: externalUser.name, email: externalUser.email };
+    await database.batch([
+      database.prepare(`CREATE TABLE IF NOT EXISTS external_identity_links (
+        provider TEXT NOT NULL,
+        provider_user_id TEXT NOT NULL,
+        data_user_id TEXT NOT NULL,
+        email TEXT NOT NULL,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP NOT NULL,
+        last_seen_at TEXT DEFAULT CURRENT_TIMESTAMP NOT NULL,
+        PRIMARY KEY(provider, provider_user_id)
+      )`),
+      database.prepare("CREATE INDEX IF NOT EXISTS idx_external_identity_email ON external_identity_links(email)"),
+      database.prepare("CREATE INDEX IF NOT EXISTS idx_external_identity_data_user ON external_identity_links(data_user_id)"),
+    ]);
+    const linked = await database.prepare("SELECT data_user_id FROM external_identity_links WHERE provider = ? AND provider_user_id = ?")
+      .bind("supabase", externalUser.id).first<{ data_user_id: string }>();
+    if (linked?.data_user_id) {
+      await database.prepare("UPDATE external_identity_links SET email = ?, last_seen_at = CURRENT_TIMESTAMP WHERE provider = ? AND provider_user_id = ?")
+        .bind(externalUser.email, "supabase", externalUser.id).run();
+      return { id: linked.data_user_id, name: externalUser.name, email: externalUser.email };
+    }
+
+    let dataUserId = fallbackId;
+    if (externalUser.emailConfirmed) {
+      const oldAccount = await database.prepare("SELECT data_user_id FROM account_links WHERE lower(email) = lower(?) ORDER BY last_seen_at DESC LIMIT 1")
+        .bind(externalUser.email).first<{ data_user_id: string }>();
+      if (oldAccount?.data_user_id) dataUserId = oldAccount.data_user_id;
+    }
+    const anonymousId = cookieValue(request, "yida_visitor");
+    if (dataUserId === fallbackId && anonymousId && visitorCookiePattern.test(anonymousId)) {
+      const anonymousData = await database.prepare("SELECT user_id FROM profiles WHERE user_id = ?").bind(anonymousId).first<{ user_id: string }>();
+      if (anonymousData?.user_id) dataUserId = anonymousData.user_id;
+    }
+    await database.prepare("INSERT INTO external_identity_links (provider, provider_user_id, data_user_id, email) VALUES (?, ?, ?, ?)")
+      .bind("supabase", externalUser.id, dataUserId, externalUser.email).run();
+    return { id: dataUserId, name: externalUser.name, email: externalUser.email };
+  }
+
   const user = await getChatGPTUser();
   if (user) {
     const database = (env as unknown as { DB?: D1Database }).DB;

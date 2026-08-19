@@ -100,3 +100,16 @@ export const accountLinks = sqliteTable("account_links", {
 }, (table) => [
   uniqueIndex("idx_account_links_data_user").on(table.dataUserId),
 ]);
+
+export const externalIdentityLinks = sqliteTable("external_identity_links", {
+  provider: text("provider").notNull(),
+  providerUserId: text("provider_user_id").notNull(),
+  dataUserId: text("data_user_id").notNull(),
+  email: text("email").notNull(),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  lastSeenAt: text("last_seen_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [
+  primaryKey({ columns: [table.provider, table.providerUserId] }),
+  index("idx_external_identity_email").on(table.email),
+  index("idx_external_identity_data_user").on(table.dataUserId),
+]);
