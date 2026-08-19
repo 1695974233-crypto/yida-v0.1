@@ -118,13 +118,12 @@ function buildOutfits(garments: Garment[], scene: string | null, styles: string[
   }
   for (const top of tops) for (const bottom of bottoms) for (const shoe of shoes) for (const outer of [undefined, ...outers]) addCandidate([top, bottom, shoe], outer);
   for (const dress of dresses) for (const shoe of shoes) for (const outer of [undefined, ...outers]) addCandidate([dress, shoe], outer);
-  const sorted = candidates.sort((a, b) => b.score - a.score);
-  const chosen: Outfit[] = [];
-  for (const candidate of sorted) {
-    if (!chosen.some((item) => item.itemIds.slice(0, 2).join("-") === candidate.itemIds.slice(0, 2).join("-"))) chosen.push(candidate);
-    if (chosen.length === 3) break;
+  const unique = new Map<string, Outfit>();
+  for (const candidate of candidates.sort((a, b) => b.score - a.score)) {
+    const combinationKey = candidate.itemIds.slice().sort((a, b) => a - b).join("-");
+    if (!unique.has(combinationKey)) unique.set(combinationKey, candidate);
   }
-  return chosen.length === 3 ? chosen : sorted.slice(0, 3);
+  return [...unique.values()].slice(0, 24);
 }
 
 const scenes = ["上班", "约会", "休闲", "运动"];
@@ -270,6 +269,8 @@ export default function Home() {
   const [editingGarmentId, setEditingGarmentId] = useState<number | null>(null);
   const [uploadPreview, setUploadPreview] = useState<string | null>(null);
   const [uploadFile, setUploadFile] = useState<File | null>(null);
+  const [uploadQueue, setUploadQueue] = useState<File[]>([]);
+  const [uploadBatchTotal, setUploadBatchTotal] = useState(0);
   const [imageKey, setImageKey] = useState<string | null>(null);
   const [processedImageKey, setProcessedImageKey] = useState<string | null>(null);
   const [recognitionProvider, setRecognitionProvider] = useState<string | null>(null);
@@ -296,7 +297,11 @@ export default function Home() {
     [recommendationGarments, wardrobeFilter],
   );
   const generatedOutfits = useMemo(() => buildOutfits(recommendationGarments, scene, styles, requestConstraints, weather), [recommendationGarments, scene, styles, requestConstraints, weather]);
-  const outfits = useMemo(() => [...generatedOutfits.slice(rotation), ...generatedOutfits.slice(0, rotation)], [generatedOutfits, rotation]);
+  const outfits = useMemo(() => {
+    if (!generatedOutfits.length) return [];
+    const pageSize = Math.min(3, generatedOutfits.length);
+    return Array.from({ length: pageSize }, (_, index) => generatedOutfits[(rotation + index) % generatedOutfits.length]);
+  }, [generatedOutfits, rotation]);
   const todayLabel = new Intl.DateTimeFormat("zh-CN", { month: "long", day: "numeric", weekday: "long", timeZone: "Asia/Shanghai" }).format(new Date());
 
   useEffect(() => {
@@ -539,19 +544,28 @@ export default function Home() {
     setEditingGarmentId(null);
     setUploadPreview(null);
     setUploadFile(null);
+    setUploadQueue([]);
+    setUploadBatchTotal(0);
     setImageKey(null);
     setProcessedImageKey(null);
   }
 
-  function openAddGarment() {
-    setEditingGarmentId(null);
+  function resetGarmentDraft() {
     setUploadPreview(null);
     setUploadFile(null);
     setImageKey(null);
     setProcessedImageKey(null);
+    setRecognitionProvider(null);
     setNewCategory("上衣");
     setNewColor("米白");
     setGarmentDraft({ name: "", category: "上衣", colorName: "米白", colorHex: "#eeeae2", material: "待确认", pattern: "纯色", warmth: 2, styleTags: [], sceneTags: ["上班", "约会", "休闲"], weatherTags: ["常规"], confidence: 0, warnings: [] });
+  }
+
+  function openAddGarment() {
+    setEditingGarmentId(null);
+    resetGarmentDraft();
+    setUploadQueue([]);
+    setUploadBatchTotal(0);
     setUploadOpen(true);
   }
 
@@ -594,13 +608,7 @@ export default function Home() {
     if (ok) showToast("衣服及相关照片已删除");
   }
 
-  async function handleUpload(event: ChangeEvent<HTMLInputElement>) {
-    const selected = event.target.files?.[0];
-    if (!selected) return;
-    if (selected.size > 8 * 1024 * 1024) {
-      showToast("图片不能超过 8MB");
-      return;
-    }
+  async function prepareAndAnalyzeGarment(selected: File) {
     try {
       const file = await prepareUploadImage(selected);
       setUploadFile(file);
@@ -609,6 +617,22 @@ export default function Home() {
     } catch (error) {
       showToast(error instanceof Error ? error.message : "图片读取失败");
     }
+  }
+
+  async function handleUpload(event: ChangeEvent<HTMLInputElement>) {
+    const selectedFiles = Array.from(event.target.files ?? []).slice(0, 10);
+    event.target.value = "";
+    if (!selectedFiles.length) return;
+    const validFiles = selectedFiles.filter((file) => file.size <= 8 * 1024 * 1024);
+    if (!validFiles.length) {
+      showToast("每张图片不能超过 8MB");
+      return;
+    }
+    if (validFiles.length < selectedFiles.length) showToast("已跳过超过 8MB 的图片");
+    resetGarmentDraft();
+    setUploadBatchTotal(validFiles.length);
+    setUploadQueue(validFiles.slice(1));
+    await prepareAndAnalyzeGarment(validFiles[0]);
   }
 
   async function analyzeSelectedFile(file = uploadFile) {
@@ -661,9 +685,18 @@ export default function Home() {
     });
     if (ok) {
       const wasEditing = editingGarmentId !== null;
-      closeGarmentModal();
-      setTab("wardrobe");
-      showToast(wasEditing ? "衣服信息已更新" : "衣服照片和你确认的信息已保存");
+      if (!wasEditing && uploadQueue.length) {
+        const [nextFile, ...remainingFiles] = uploadQueue;
+        setUploadQueue(remainingFiles);
+        resetGarmentDraft();
+        showToast(`这一件已保存，继续确认下一件（还剩 ${remainingFiles.length + 1} 件）`);
+        await prepareAndAnalyzeGarment(nextFile);
+      } else {
+        const savedCount = uploadBatchTotal || 1;
+        closeGarmentModal();
+        setTab("wardrobe");
+        showToast(wasEditing ? "衣服信息已更新" : savedCount > 1 ? `${savedCount} 件衣服已全部保存` : "衣服照片和你确认的信息已保存");
+      }
     }
   }
 
@@ -799,7 +832,14 @@ export default function Home() {
 
           <div className="recommendation-heading">
             <div><p className="eyebrow">{hasRealGarments ? "仅使用你的真实衣柜" : scene ? `已加入“${scene}”场景` : "虚拟衣柜体验模式"}</p><h2>今天为你搭好了</h2></div>
-            <button className="refresh-button" onClick={() => { setRotation(generatedOutfits.length ? (rotation + 1) % generatedOutfits.length : 0); showToast("已根据当前衣柜重新排序"); }}>↻ 换一组</button>
+            <button className="refresh-button" onClick={() => {
+              if (generatedOutfits.length <= 3) {
+                showToast(`当前衣柜只有 ${generatedOutfits.length} 组有效搭配，多上传不同类别的衣服会更丰富`);
+                return;
+              }
+              setRotation((current) => (current + 3) % generatedOutfits.length);
+              showToast("已换成另一组搭配");
+            }}>↻ 换一组</button>
           </div>
 
           <div className="outfit-stack">
@@ -813,11 +853,9 @@ export default function Home() {
                       <div className={`real-piece-grid pieces-${Math.min(outfitGarments.length, 4)}`} aria-label={`本套真实衣物，共 ${outfitGarments.length} 件`}>
                         {outfitGarments.map((garment) => <div className="real-piece" key={garment.id}>{garment.image ? <img src={garment.image} alt={garment.name} /> : <GarmentArt garment={garment} compact />}<span>{garment.name}</span></div>)}
                       </div>
-                      <div className="model-panel">
+                      <div className="model-panel effect-panel">
                         {visualizedLooks[outfit.key] ? <><img className="generated-model" src={visualizedLooks[outfit.key]} alt={`${outfit.title} ${fullBodyImageUrl ? "真人" : "假人模特"}试穿效果`} /><span className="tryon-mode-badge">{fullBodyImageUrl ? "本人试穿" : `${modelPresentation}假人`}</span></> : <>
-                          <div className={`mannequin-placeholder ${visualizingKey === outfit.key ? "dressing" : ""}`} aria-hidden="true"><i className="mannequin-head" /><i className="mannequin-body" /><i className="mannequin-legs" /></div>
-                          <strong>{visualizingKey === outfit.key ? "正在后台生成，约需 30—90 秒" : bodyHeight && bodyWeight ? `${modelPresentation} · ${bodyHeight}cm · ${bodyWeight}kg` : "先填写资料生成试穿"}</strong>
-                          <button disabled={visualizingKey === outfit.key} onClick={() => generateOutfitLook(outfit)}>{visualizingKey === outfit.key ? "可继续浏览，完成后提醒" : bodyHeight && bodyWeight ? "生成这套试穿" : "填写资料"}</button>
+                          {visualizingKey === outfit.key ? <div className="effect-status" role="status"><span className="effect-spinner">✦</span><strong>正在生成效果图</strong><small>约需 30—90 秒<br />可以继续浏览</small></div> : <button className="effect-trigger" onClick={() => generateOutfitLook(outfit)} aria-label={`生成“${outfit.title}”的穿搭效果图`}><span>✦</span><strong>效果图</strong><small>{bodyHeight && bodyWeight ? "点击生成模特试穿" : "先填写身体资料"}</small></button>}
                         </>}
                       </div>
                     </div> : <div className="look-canvas">
@@ -980,12 +1018,12 @@ export default function Home() {
       {uploadOpen && (
         <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) closeGarmentModal(); }}>
           <div className="upload-modal" role="dialog" aria-modal="true" aria-labelledby="upload-title">
-            <div className="modal-handle" /><div className="modal-heading"><div><p className="eyebrow">{editingGarmentId === null ? "放进你的数字衣柜" : "修改衣物信息"}</p><h2 id="upload-title">{editingGarmentId === null ? "添加一件衣服" : "编辑这件衣服"}</h2></div><button onClick={closeGarmentModal} aria-label="关闭">×</button></div>
+            <div className="modal-handle" /><div className="modal-heading"><div><p className="eyebrow">{editingGarmentId === null ? "放进你的数字衣柜" : "修改衣物信息"}</p><h2 id="upload-title">{editingGarmentId === null ? uploadBatchTotal > 1 ? "批量添加衣服" : "添加衣服" : "编辑这件衣服"}</h2>{editingGarmentId === null && uploadBatchTotal > 1 && <small className="batch-progress">正在确认第 {uploadBatchTotal - uploadQueue.length} / {uploadBatchTotal} 件</small>}</div><button onClick={closeGarmentModal} aria-label="关闭">×</button></div>
             {editingGarmentId !== null && uploadPreview && <div className="edit-image-preview"><img src={uploadPreview} alt="当前衣物" /></div>}
             {editingGarmentId === null && <>
             <label className={`upload-zone ${uploadPreview ? "has-image" : ""}`}>
-              {uploadPreview ? <><img src={uploadPreview} alt="待上传衣服预览" />{analyzing && <span className="image-processing">AI 正在看这件衣服…</span>}</> : <><span>＋</span><strong>拍照或从相册选择</strong><small>尽量只拍一件，保持光线自然</small></>}
-              <input type="file" accept="image/jpeg,image/png,image/webp" onChange={handleUpload} />
+              {uploadPreview ? <><img src={uploadPreview} alt="待上传衣服预览" />{analyzing && <span className="image-processing">AI 正在看这件衣服…</span>}</> : <><span>＋</span><strong>拍照或从相册批量选择</strong><small>一次最多 10 张；每张照片只放一件衣服</small></>}
+              <input type="file" accept="image/jpeg,image/png,image/webp" multiple onChange={handleUpload} />
             </label>
             <label className="seedream-option"><input type="checkbox" aria-label="用 Seedream 整理展示图" checked={enhanceWithSeedream} onChange={(event) => setEnhanceWithSeedream(event.target.checked)} /><span><strong>用 Seedream 整理展示图（可选）</strong><small>默认关闭；开启后会产生图片处理费用，用于去除杂乱背景并平整展示，原图仍会保留</small></span></label>
                 <div className={`recognition-note ${aiReady === false || (Boolean(imageKey) && recognitionProvider === "manual-fallback") ? "setup-needed" : ""}`}><span>✦</span><div><strong>{analyzing ? "正在识别衣物属性…" : imageKey ? (recognitionProvider && recognitionProvider !== "manual-fallback" && garmentDraft.confidence > 0 ? `识别完成 · ${garmentDraft.confidence}% 可信` : aiReady ? "AI 识别没有成功，请重新识别或手动确认" : "演示识别 · 等待配置模型密钥") : "上传后自动识别类型、颜色、材质和适用场景"}</strong>{garmentDraft.warnings.length > 0 && <small>{garmentDraft.warnings.join(" ")}</small>}{recognitionsRemaining !== null && <small>今日还可识别 {recognitionsRemaining} 次</small>}</div></div>
@@ -999,7 +1037,7 @@ export default function Home() {
               <div className="scene-dropdown">{garmentSceneGroups.map((group) => <section key={group.label}><h4>{group.label}</h4><div>{group.options.map((sceneName) => <button type="button" key={sceneName} className={garmentDraft.sceneTags.includes(sceneName) ? "selected" : ""} onClick={() => toggleGarmentScene(sceneName)}>{garmentDraft.sceneTags.includes(sceneName) ? "✓ " : ""}{sceneName}</button>)}</div></section>)}</div>
             </details>
             <p className="confirmation-hint">AI 识别可能出错，请确认后再保存。展示图不会替代原始照片。</p>
-            <button className="primary-button" disabled={saving || analyzing || !garmentDraft.name.trim() || !garmentDraft.sceneTags.length} onClick={saveGarment}>{saving ? "正在保存…" : analyzing ? "正在识别…" : editingGarmentId === null ? "确认信息，加入衣柜" : "保存修改"}</button>
+            <button className="primary-button" disabled={saving || analyzing || !garmentDraft.name.trim() || !garmentDraft.sceneTags.length} onClick={saveGarment}>{saving ? "正在保存…" : analyzing ? "正在识别…" : editingGarmentId !== null ? "保存修改" : uploadQueue.length ? `保存并继续下一件（剩余 ${uploadQueue.length} 件）` : "确认信息，加入衣柜"}</button>
           </div>
         </div>
       )}

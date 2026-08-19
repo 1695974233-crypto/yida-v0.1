@@ -84,6 +84,14 @@ h3 { margin-bottom: 7px; font-size: 18px; }
 .model-panel strong { z-index: 1; margin-bottom: 5px; color: #5f615a; font-size: 8px; }
 .model-panel button { z-index: 1; width: 100%; padding: 8px 4px; border: 0; border-radius: 10px; background: var(--sage-dark); color: white; font-size: 8px; cursor: pointer; }
 .model-panel button:disabled { opacity: .6; }
+.model-panel.effect-panel { justify-content: center; padding: 10px; }
+.model-panel .effect-trigger { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; padding: 12px 5px; border: 1px dashed #aeb7a6; border-radius: 13px; background: rgba(255,255,255,.5); color: var(--sage-dark); }
+.effect-trigger > span, .effect-status > span { width: 37px; height: 37px; display: grid; place-items: center; border-radius: 50%; color: white; background: var(--sage-dark); font-size: 15px; }
+.model-panel .effect-trigger strong, .effect-status strong { margin: 0; color: var(--ink); font-size: 11px; }
+.effect-trigger small, .effect-status small { color: var(--muted); font-size: 8px; line-height: 1.5; }
+.effect-status { display: flex; flex-direction: column; align-items: center; gap: 7px; }
+.effect-spinner { animation: effect-spin 1.4s linear infinite; }
+@keyframes effect-spin { to { transform: rotate(360deg); } }
 .save-float { width: 39px; height: 39px; position: absolute; right: 14px; top: 14px; border: 0; border-radius: 50%; background: rgba(255,255,255,.88); font-size: 19px; cursor: pointer; box-shadow: 0 6px 14px rgba(40,40,35,.12); }.save-float.active { color: #b2675c; }
 .outfit-content { padding: 18px 18px 16px; }.outfit-title-row { display: flex; justify-content: space-between; align-items: flex-start; }.outfit-tag { display: block; color: var(--sage); font-size: 10px; font-weight: 700; margin-bottom: 3px; }.outfit-title-row h3 { font-family: Georgia, "Songti SC", serif; font-size: 21px; }.tiny-button { padding: 7px 10px; background: var(--cream); border-radius: 999px; }
 .outfit-items { color: #55574f; font-size: 12px; line-height: 1.55; margin-bottom: 9px; }.outfit-reason { color: var(--muted); font-size: 12px; line-height: 1.65; padding: 11px 12px; background: #f8f6f1; border-radius: 13px; margin-bottom: 14px; }
@@ -120,6 +128,7 @@ h3 { margin-bottom: 7px; font-size: 18px; }
 .garment-actions button.danger { color: #9b4b45; background: #fff8f7; }
 .edit-image-preview { height: 170px; margin: 10px 0 14px; overflow: hidden; border-radius: 17px; background: #f2efe8; }
 .edit-image-preview img { width: 100%; height: 100%; object-fit: contain; }
+.batch-progress { display: block; margin: 5px 0 10px; color: var(--sage-dark); font-size: 10px; font-weight: 700; }
 .scene-selector { margin: 0 0 14px; padding: 0; border: 0; }
 .scene-selector legend { margin-bottom: 7px; color: var(--muted); font-size: 10px; }
 .scene-selector > div { display: flex; flex-wrap: wrap; gap: 7px; }

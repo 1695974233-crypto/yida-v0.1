@@ -87,8 +87,11 @@ test("switches to real wardrobe photos and supports Seedream mannequin previews"
     readFile(new URL("../lib/visitor.ts", import.meta.url), "utf8"),
   ]);
   assert.match(page, /已切换为真实衣柜/);
-  assert.match(page, /生成这套试穿/);
-  assert.match(page, /正在后台生成，约需 30—90 秒/);
+  assert.match(page, /效果图/);
+  assert.match(page, /正在生成效果图/);
+  assert.match(page, /multiple onChange=\{handleUpload\}/);
+  assert.match(page, /保存并继续下一件/);
+  assert.match(page, /current \+ 3/);
   assert.match(page, /pieces-/);
   assert.match(page, /AI 模特身体资料/);
   assert.match(page, /性别/);
