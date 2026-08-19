@@ -4,7 +4,7 @@ import { getDb } from "../../../../db";
 import { garments, profiles } from "../../../../db/schema";
 import { visualizeOutfitWithSeedream } from "../../../../lib/ark";
 import { getVisitor } from "../../../../lib/visitor";
-import { consumeVisualization } from "../../../../lib/visualization-limit";
+import { checkVisualizationAllowance, recordSuccessfulVisualization } from "../../../../lib/visualization-limit";
 
 export const dynamic = "force-dynamic";
 
@@ -53,8 +53,8 @@ export async function POST(request: Request) {
       return Response.json({ imageUrl: `/api/garments/image?key=${encodeURIComponent(outputKey)}`, cached: true });
     }
 
-    const usage = await consumeVisualization(visitor.id);
-    if (!usage.allowed) return Response.json({ error: "今天的 3 次 AI 模特额度已用完，请明天再试", remaining: 0 }, { status: 429 });
+    const allowance = await checkVisualizationAllowance(visitor.id);
+    if (!allowance.allowed) return Response.json({ error: "今天已成功生成 3 套 AI 试穿，请明天再试", remaining: 0 }, { status: 429 });
     const imageDataUrls = await Promise.all(ordered.map(async (item) => {
       const object = await runtime.GARMENT_IMAGES!.get(item.processedImageKey ?? item.imageKey!);
       if (!object) throw new Error(`没有找到“${item.name}”的图片`);
@@ -75,6 +75,7 @@ export async function POST(request: Request) {
       httpMetadata: { contentType: "image/png", cacheControl: "private, max-age=3600" },
       customMetadata: { userId: visitor.id, sourceIds: itemIds.join(","), mode: personReferenceDataUrl ? "person" : "mannequin", model: runtime.ARK_SEEDREAM_MODEL ?? "doubao-seedream-5-0-260128" },
     });
+    const usage = await recordSuccessfulVisualization(visitor.id);
     return Response.json({ imageUrl: `/api/garments/image?key=${encodeURIComponent(outputKey)}`, remaining: usage.remaining });
   } catch (error) {
     console.error("outfit visualization failed", error);

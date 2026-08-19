@@ -21,8 +21,24 @@ test("server-renders the Yida product shell", async () => {
   assert.match(response.headers.get("content-type") ?? "", /^text\/html\b/i);
   const html = await response.text();
   assert.match(html, /易搭/);
-  assert.match(html, /今天穿什么/);
+  assert.match(html, /正在确认登录状态/);
   assert.doesNotMatch(html, /Your site is taking shape|codex-preview/i);
+});
+
+test("includes ChatGPT sign-in, sign-out and account-bound data", async () => {
+  const [page, authRoute, visitor, schema] = await Promise.all([
+    readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/auth/me/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../lib/visitor.ts", import.meta.url), "utf8"),
+    readFile(new URL("../db/schema.ts", import.meta.url), "utf8"),
+  ]);
+  assert.match(page, /signin-with-chatgpt/);
+  assert.match(page, /signout-with-chatgpt/);
+  assert.match(page, /今天穿什么/);
+  assert.match(authRoute, /getChatGPTUser/);
+  assert.match(visitor, /account_links/);
+  assert.match(schema, /accountLinks/);
+  await access(new URL("../drizzle/0009_salty_shriek.sql", import.meta.url));
 });
 
 test("includes the phase-three garment pipeline", async () => {
@@ -78,7 +94,8 @@ test("switches to real wardrobe photos and supports Seedream mannequin previews"
   assert.match(page, /body-reference/);
   assert.match(page, /上传本人全身照/);
   assert.match(page, /正在给.*穿上这套衣服/);
-  assert.match(visualizeRoute, /consumeVisualization/);
+  assert.match(visualizeRoute, /checkVisualizationAllowance/);
+  assert.match(visualizeRoute, /recordSuccessfulVisualization/);
   assert.match(visualizeRoute, /fullBodyImageKey/);
   assert.match(arkAdapter, /visualizeOutfitWithSeedream/);
   assert.match(arkAdapter, /真人虚拟试穿生成器/);

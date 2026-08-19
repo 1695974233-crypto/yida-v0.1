@@ -22,6 +22,7 @@ type Garment = {
 };
 
 type FeedbackRecord = { outfitKey: string; action: string };
+type AccountData = { id: string; email: string; name: string };
 type Outfit = { key: string; title: string; tag: string; score: number; colors: string[]; items: string; reason: string; itemIds: number[] };
 type RequestConstraints = { scene?: string; warmth?: "warmer" | "lighter"; formality?: "formal" | "casual"; avoid?: string[]; colors?: string[] };
 type ChatMessage = { id: number; role: "user" | "assistant"; content: string; createdAt?: string };
@@ -237,6 +238,7 @@ function GarmentArt({ garment, compact = false }: { garment: Garment; compact?: 
 }
 
 export default function Home() {
+  const [account, setAccount] = useState<AccountData | null | undefined>(undefined);
   const [onboarding, setOnboarding] = useState(true);
   const [onboardingStep, setOnboardingStep] = useState(0);
   const [tab, setTab] = useState<Tab>("today");
@@ -299,6 +301,18 @@ export default function Home() {
   const todayLabel = new Intl.DateTimeFormat("zh-CN", { month: "long", day: "numeric", weekday: "long", timeZone: "Asia/Shanghai" }).format(new Date());
 
   useEffect(() => {
+    fetch("/api/auth/me", { cache: "no-store" })
+      .then(async (response) => {
+        if (!response.ok) return null;
+        const data = await response.json() as { user?: AccountData };
+        return data.user ?? null;
+      })
+      .then(setAccount)
+      .catch(() => setAccount(null));
+  }, []);
+
+  useEffect(() => {
+    if (!account) return;
     fetch("/api/state", { cache: "no-store" })
       .then(async (response) => {
         if (!response.ok) throw new Error("无法连接你的衣柜");
@@ -328,7 +342,7 @@ export default function Home() {
       })
       .catch(() => showToast("当前使用演示数据，稍后会自动重试"))
       .finally(() => setLoading(false));
-  }, []);
+  }, [account]);
 
   function showToast(message: string) {
     setToast(message);
@@ -726,6 +740,14 @@ export default function Home() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
+  if (account === undefined) {
+    return <main className="auth-shell"><div className="auth-card loading-auth"><span className="brand-mark">易</span><p>正在确认登录状态…</p></div></main>;
+  }
+
+  if (account === null) {
+    return <main className="auth-shell"><section className="auth-card"><span className="brand-mark">易</span><p className="eyebrow">你的个人 AI 衣柜</p><h1>登录易搭</h1><p>使用 ChatGPT 账号登录后，衣柜、身体资料、偏好和穿搭记录都会保存到你的账号，再次登录即可恢复。</p><a className="chatgpt-login-button" href="/signin-with-chatgpt?return_to=%2F">使用 ChatGPT 账号登录</a><small>登录状态由 ChatGPT 安全管理；在同一浏览器保持登录时，无需重复操作。</small></section></main>;
+  }
+
   return (
     <main className="app-shell">
       {(loading || saving) && <div className="sync-indicator"><span>{loading ? "正在打开你的衣柜…" : "正在保存…"}</span></div>}
@@ -896,10 +918,10 @@ export default function Home() {
 
       {tab === "profile" && (
         <section className="screen profile-screen">
-          <div className="profile-hero"><div className="large-avatar">晚</div><div><h1>晚晚</h1><p>和易搭一起生活的第 12 天</p></div><button onClick={() => { setOnboarding(true); setOnboardingStep(0); }}>重新体验引导</button></div>
+          <div className="profile-hero"><div className="large-avatar">{account.name.slice(0, 1).toUpperCase()}</div><div><h1>{account.name.includes("@") ? "易搭用户" : account.name}</h1><p>{account.email}</p></div><button onClick={() => { setOnboarding(true); setOnboardingStep(0); }}>重新体验引导</button></div>
           <div className="stat-grid"><div><strong>{recommendationGarments.length}</strong><span>{hasRealGarments ? "真实单品" : "体验单品"}</span></div><div><strong>{saved.length}</strong><span>收藏搭配</span></div><div><strong>{worn.length + 7}</strong><span>本月已穿</span></div></div>
           <section className="profile-section"><div className="section-heading"><div><p className="eyebrow">最近 30 天</p><h2>穿搭记录</h2></div><button className="clear-button">查看全部</button></div><div className="history-list"><div><span className="history-date">今天</span><div className="mini-palette"><i style={{ background: "#b8cbd4" }} /><i style={{ background: "#595b5c" }} /><i style={{ background: "#e7ddca" }} /></div><p>雨天也清爽</p><b>已穿 ✓</b></div><div><span className="history-date">周六</span><div className="mini-palette"><i style={{ background: "#d9c8ad" }} /><i style={{ background: "#66819b" }} /></div><p>舒服不费力</p><b>已收藏</b></div></div></section>
-          <section className="settings-list"><button onClick={() => setBodyProfileOpen(true)}><span>♙</span><div><strong>AI 模特身体资料</strong><small>{bodyHeight && bodyWeight ? `${bodyHeight}cm · ${bodyWeight}kg · ${bodyShape}` : "填写身高、体重和身材特点"}</small></div><b>›</b></button><button><span>♡</span><div><strong>我的偏爱穿搭</strong><small>收藏与喜欢过的搭配</small></div><b>›</b></button><button><span>♨</span><div><strong>脏衣篓设置</strong><small>默认 3 天后恢复可用</small></div><b>›</b></button><button><span>◌</span><div><strong>个人偏好</strong><small>{styles.join("、")}</small></div><b>›</b></button><button><span>⌁</span><div><strong>隐私与数据</strong><small>定位、照片与删除设置</small></div><b>›</b></button></section>
+          <section className="settings-list"><button onClick={() => setBodyProfileOpen(true)}><span>♙</span><div><strong>AI 模特身体资料</strong><small>{bodyHeight && bodyWeight ? `${bodyHeight}cm · ${bodyWeight}kg · ${bodyShape}` : "填写身高、体重和身材特点"}</small></div><b>›</b></button><button><span>♡</span><div><strong>我的偏爱穿搭</strong><small>收藏与喜欢过的搭配</small></div><b>›</b></button><button><span>♨</span><div><strong>脏衣篓设置</strong><small>默认 3 天后恢复可用</small></div><b>›</b></button><button><span>◌</span><div><strong>个人偏好</strong><small>{styles.join("、")}</small></div><b>›</b></button><button><span>⌁</span><div><strong>隐私与数据</strong><small>定位、照片与删除设置</small></div><b>›</b></button><a className="logout-setting" href="/signout-with-chatgpt?return_to=%2F"><span>↪</span><div><strong>退出登录</strong><small>退出当前 ChatGPT 账号</small></div><b>›</b></a></section>
         </section>
       )}
 

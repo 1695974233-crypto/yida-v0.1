@@ -90,3 +90,13 @@ export const visualizationUsage = sqliteTable("visualization_usage", {
 }, (table) => [
   primaryKey({ columns: [table.visitorId, table.usageDate] }),
 ]);
+
+export const accountLinks = sqliteTable("account_links", {
+  authUserId: text("auth_user_id").primaryKey(),
+  dataUserId: text("data_user_id").notNull(),
+  email: text("email").notNull(),
+  createdAt: text("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  lastSeenAt: text("last_seen_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, (table) => [
+  uniqueIndex("idx_account_links_data_user").on(table.dataUserId),
+]);

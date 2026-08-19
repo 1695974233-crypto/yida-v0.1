@@ -64,6 +64,13 @@
       "when": 1787046335829,
       "tag": "0008_illegal_roulette",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1787105859722,
+      "tag": "0009_salty_shriek",
+      "breakpoints": true
     }
   ]
 }
