@@ -26,6 +26,7 @@ type AccountData = { id: string; email: string; name: string };
 type Outfit = { key: string; title: string; tag: string; score: number; colors: string[]; items: string; reason: string; itemIds: number[] };
 type RequestConstraints = { scene?: string; warmth?: "warmer" | "lighter"; formality?: "formal" | "casual"; avoid?: string[]; colors?: string[] };
 type ChatMessage = { id: number; role: "user" | "assistant"; content: string; createdAt?: string };
+type ExpandedLook = { imageUrl: string; title: string; items: string; mode: string };
 type WeatherData = { city: string; latitude: number; longitude: number; temperature: number; apparentTemperature: number; precipitation: number; windSpeed: number; weatherCode: number; temperatureMax: number; temperatureMin: number; condition: string; icon: string };
 type WeatherLocation = { latitude?: number; longitude?: number; name?: string; city?: string };
 type WeatherGeocodingResponse = { results?: Array<{ name: string; latitude: number; longitude: number; admin1?: string }> };
@@ -123,7 +124,29 @@ function buildOutfits(garments: Garment[], scene: string | null, styles: string[
     const combinationKey = candidate.itemIds.slice().sort((a, b) => a - b).join("-");
     if (!unique.has(combinationKey)) unique.set(combinationKey, candidate);
   }
-  return [...unique.values()].slice(0, 24);
+  const pool = [...unique.values()];
+  const diversified: Outfit[] = [];
+  while (pool.length && diversified.length < 24) {
+    const batch: Outfit[] = [];
+    while (pool.length && batch.length < 3) {
+      let bestIndex = 0;
+      let bestValue = Number.NEGATIVE_INFINITY;
+      for (let index = 0; index < pool.length; index += 1) {
+        const candidate = pool[index];
+        const mostSharedItems = batch.length
+          ? Math.max(...batch.map((chosen) => candidate.itemIds.filter((id) => chosen.itemIds.includes(id)).length))
+          : 0;
+        const value = candidate.score - mostSharedItems * 16;
+        if (value > bestValue) {
+          bestValue = value;
+          bestIndex = index;
+        }
+      }
+      batch.push(pool.splice(bestIndex, 1)[0]);
+    }
+    diversified.push(...batch);
+  }
+  return diversified;
 }
 
 const scenes = ["上班", "约会", "休闲", "运动"];
@@ -261,6 +284,7 @@ export default function Home() {
   const [visualizingKey, setVisualizingKey] = useState<string | null>(null);
   const [visualizedLooks, setVisualizedLooks] = useState<Record<string, string>>({});
   const [visualizationErrors, setVisualizationErrors] = useState<Record<string, string>>({});
+  const [expandedLook, setExpandedLook] = useState<ExpandedLook | null>(null);
   const [chatInput, setChatInput] = useState("");
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [activeRequest, setActiveRequest] = useState<string | null>(null);
@@ -315,6 +339,18 @@ export default function Home() {
       .then(setAccount)
       .catch(() => setAccount(null));
   }, []);
+
+  useEffect(() => {
+    if (!expandedLook) return;
+    const previousOverflow = document.body.style.overflow;
+    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === "Escape") setExpandedLook(null); };
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [expandedLook]);
 
   useEffect(() => {
     if (!account) return;
@@ -862,7 +898,7 @@ export default function Home() {
                         {outfitGarments.map((garment) => <div className="real-piece" key={garment.id}>{garment.image ? <img src={garment.image} alt={garment.name} /> : <GarmentArt garment={garment} compact />}<span>{garment.name}</span></div>)}
                       </div>
                       <div className="model-panel effect-panel">
-                        {visualizedLooks[outfit.key] ? <><img className="generated-model" src={visualizedLooks[outfit.key]} alt={`${outfit.title} ${fullBodyImageUrl ? "真人" : "假人模特"}试穿效果`} /><span className="tryon-mode-badge">{fullBodyImageUrl ? "本人试穿" : `${modelPresentation}假人`}</span></> : <>
+                        {visualizedLooks[outfit.key] ? <><button className="generated-model-button" onClick={() => setExpandedLook({ imageUrl: visualizedLooks[outfit.key], title: outfit.title, items: outfit.items, mode: fullBodyImageUrl ? "本人试穿" : `${modelPresentation}假人` })} aria-label={`放大查看“${outfit.title}”试穿效果`}><img className="generated-model" src={visualizedLooks[outfit.key]} alt={`${outfit.title} ${fullBodyImageUrl ? "真人" : "假人模特"}试穿效果`} /><span className="zoom-hint">⌕ 点击放大</span></button><span className="tryon-mode-badge">{fullBodyImageUrl ? "本人试穿" : `${modelPresentation}假人`}</span></> : <>
                           {visualizingKey === outfit.key ? <div className="effect-status" role="status"><span className="effect-spinner">✦</span><strong>正在生成效果图</strong><small>多衣物融合通常需要一段时间<br />可以继续浏览</small></div> : <button className="effect-trigger" onClick={() => generateOutfitLook(outfit)} aria-label={`生成“${outfit.title}”的穿搭效果图`} title={visualizationErrors[outfit.key]}><span>✦</span><strong>{visualizationErrors[outfit.key] ? "重新生成" : "效果图"}</strong><small className={visualizationErrors[outfit.key] ? "effect-error" : ""}>{visualizationErrors[outfit.key] ?? (bodyHeight && bodyWeight ? "点击生成模特试穿" : "先填写身体资料")}</small></button>}
                         </>}
                       </div>
@@ -1049,6 +1085,13 @@ export default function Home() {
           </div>
         </div>
       )}
+      {expandedLook && <div className="look-modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setExpandedLook(null); }}>
+        <section className="look-modal" role="dialog" aria-modal="true" aria-labelledby="look-modal-title">
+          <button className="look-modal-close" onClick={() => setExpandedLook(null)} aria-label="关闭效果图">×</button>
+          <div className="look-modal-image"><img src={expandedLook.imageUrl} alt={`${expandedLook.title} 放大试穿效果`} /></div>
+          <div className="look-modal-copy"><small>{expandedLook.mode} · AI 搭配示意</small><h2 id="look-modal-title">{expandedLook.title}</h2><p>{expandedLook.items}</p></div>
+        </section>
+      </div>}
       {toast && <div className="toast" role="status">✓ {toast}</div>}
     </main>
   );

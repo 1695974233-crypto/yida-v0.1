@@ -72,7 +72,10 @@ h3 { margin-bottom: 7px; font-size: 18px; }
 .real-piece > .garment-art .clothing-shape { transform: scale(.55); }
 .real-piece > span { position: absolute; left: 5px; right: 5px; bottom: 5px; padding: 4px 5px; overflow: hidden; border-radius: 7px; background: rgba(255,255,255,.88); color: var(--ink); font-size: 7px; white-space: nowrap; text-overflow: ellipsis; }
 .model-panel { min-width: 0; position: relative; overflow: hidden; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; padding: 9px; border-radius: 16px; background: linear-gradient(180deg,#e5e1d8,#f8f5ef); border: 1px solid rgba(215,207,194,.9); text-align: center; }
-.generated-model { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.model-panel .generated-model-button { position: absolute; z-index: 1; inset: 0; width: 100%; height: 100%; padding: 0; border: 0; border-radius: 0; overflow: hidden; background: #eeeae2; }
+.generated-model { width: 100%; height: 100%; object-fit: contain; background: #eeeae2; }
+.zoom-hint { position: absolute; left: 50%; bottom: 8px; transform: translateX(-50%); width: max-content; padding: 5px 8px; border-radius: 999px; color: white; background: rgba(43,47,40,.72); font-size: 7px; opacity: 0; transition: opacity .18s ease; }
+.generated-model-button:hover .zoom-hint, .generated-model-button:focus-visible .zoom-hint { opacity: 1; }
 .tryon-mode-badge { z-index: 2; position: absolute; top: 8px; right: 8px; padding: 5px 7px; border-radius: 999px; color: white; background: rgba(68,76,63,.78); backdrop-filter: blur(8px); font-size: 7px; font-weight: 700; }
 .mannequin-placeholder { width: 74px; height: 145px; position: absolute; top: 10px; left: 50%; transform: translateX(-50%); }
 .mannequin-placeholder i { position: absolute; display: block; left: 50%; transform: translateX(-50%); background: #b9b5ad; }
@@ -93,6 +96,15 @@ h3 { margin-bottom: 7px; font-size: 18px; }
 .effect-status { display: flex; flex-direction: column; align-items: center; gap: 7px; }
 .effect-spinner { animation: effect-spin 1.4s linear infinite; }
 @keyframes effect-spin { to { transform: rotate(360deg); } }
+.look-modal-backdrop { position: fixed; z-index: 200; inset: 0; display: grid; place-items: center; padding: 18px; background: rgba(27,29,25,.78); backdrop-filter: blur(9px); }
+.look-modal { position: relative; width: min(100%,500px); max-height: calc(100vh - 36px); overflow: hidden; border-radius: 24px; background: var(--paper); box-shadow: 0 28px 80px rgba(0,0,0,.28); }
+.look-modal-close { position: absolute; z-index: 2; top: 12px; right: 12px; width: 38px; height: 38px; border: 0; border-radius: 50%; color: white; background: rgba(37,40,34,.78); font-size: 24px; line-height: 1; cursor: pointer; }
+.look-modal-image { height: min(72vh,680px); display: grid; place-items: center; padding: 12px; background: #e9e5dc; }
+.look-modal-image img { width: 100%; height: 100%; object-fit: contain; }
+.look-modal-copy { padding: 15px 18px 18px; }
+.look-modal-copy small { color: var(--sage); font-size: 9px; font-weight: 700; }
+.look-modal-copy h2 { margin: 4px 0 5px; font-family: Georgia,"Songti SC",serif; font-size: 21px; }
+.look-modal-copy p { margin: 0; color: var(--muted); font-size: 10px; line-height: 1.55; }
 .save-float { width: 39px; height: 39px; position: absolute; right: 14px; top: 14px; border: 0; border-radius: 50%; background: rgba(255,255,255,.88); font-size: 19px; cursor: pointer; box-shadow: 0 6px 14px rgba(40,40,35,.12); }.save-float.active { color: #b2675c; }
 .outfit-content { padding: 18px 18px 16px; }.outfit-title-row { display: flex; justify-content: space-between; align-items: flex-start; }.outfit-tag { display: block; color: var(--sage); font-size: 10px; font-weight: 700; margin-bottom: 3px; }.outfit-title-row h3 { font-family: Georgia, "Songti SC", serif; font-size: 21px; }.tiny-button { padding: 7px 10px; background: var(--cream); border-radius: 999px; }
 .outfit-items { color: #55574f; font-size: 12px; line-height: 1.55; margin-bottom: 9px; }.outfit-reason { color: var(--muted); font-size: 12px; line-height: 1.65; padding: 11px 12px; background: #f8f6f1; border-radius: 13px; margin-bottom: 14px; }

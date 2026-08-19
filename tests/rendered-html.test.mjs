@@ -92,6 +92,10 @@ test("switches to real wardrobe photos and supports Seedream mannequin previews"
   assert.match(page, /multiple onChange=\{handleUpload\}/);
   assert.match(page, /保存并继续下一件/);
   assert.match(page, /current \+ 3/);
+  assert.match(page, /mostSharedItems/);
+  assert.match(page, /放大查看/);
+  assert.match(page, /look-modal/);
+  assert.match(page, /event\.key === "Escape"/);
   assert.match(page, /pieces-/);
   assert.match(page, /AI 模特身体资料/);
   assert.match(page, /性别/);
