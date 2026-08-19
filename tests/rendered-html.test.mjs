@@ -54,6 +54,9 @@ test("includes the phase-three garment pipeline", async () => {
   assert.match(analyzeRoute, /analyzeGarmentWithArk/);
   const arkAdapter = await readFile(new URL("../lib/ark.ts", import.meta.url), "utf8");
   assert.match(arkAdapter, /ark\.cn-beijing\.volces\.com\/api\/v3/);
+  assert.match(arkAdapter, /所有字符串值都必须使用英文双引号/);
+  assert.match(arkAdapter, /const repaired = source/);
+  assert.match(page, /AI 识别没有成功，请重新识别或手动确认/);
   assert.doesNotMatch(arkAdapter, /bytepluses|ap-southeast/);
   assert.match(schema, /recognitionConfidence/);
   assert.equal(JSON.parse(hosting).r2, "GARMENT_IMAGES");

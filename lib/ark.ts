@@ -27,7 +27,25 @@ function clamp(value: number, min: number, max: number) {
 function parseJsonObject(value: string): Record<string, unknown> {
   const fenced = value.match(/```(?:json)?\s*([\s\S]*?)```/i)?.[1];
   const source = fenced ?? value.slice(value.indexOf("{"), value.lastIndexOf("}") + 1);
-  return JSON.parse(source) as Record<string, unknown>;
+  try {
+    return JSON.parse(source) as Record<string, unknown>;
+  } catch {
+    const repaired = source
+      .replace(/[“”]/g, '"')
+      .replace(/[‘’]/g, "'")
+      .replace(/([{,]\s*)([A-Za-z_][\w-]*)(\s*:)/g, '$1"$2"$3')
+      .replace(/'([^'\\]*(?:\\.[^'\\]*)*)'/g, (_match, content: string) => JSON.stringify(content))
+      .replace(/:\s*(?!["{[])([^,}\]\n]+)(?=\s*[,}\]])/g, (_match, raw: string) => {
+        const text = raw.trim();
+        return /^(?:-?\d+(?:\.\d+)?|true|false|null)$/i.test(text) ? `: ${text}` : `: ${JSON.stringify(text)}`;
+      })
+      .replace(/([[,]\s*)(?!["'{[])([^,\]\n]+)(?=\s*[,\]])/g, (_match, prefix: string, raw: string) => {
+        const text = raw.trim();
+        return `${prefix}${/^(?:-?\d+(?:\.\d+)?|true|false|null)$/i.test(text) ? text : JSON.stringify(text)}`;
+      })
+      .replace(/,\s*([}\]])/g, "$1");
+    return JSON.parse(repaired) as Record<string, unknown>;
+  }
 }
 
 function stringList(value: unknown, allowed?: string[]) {
@@ -84,7 +102,7 @@ export function fallbackGarmentAnalysis(fileName: string): GarmentAnalysis {
 const ARK_CHINA_BASE_URL = "https://ark.cn-beijing.volces.com/api/v3";
 
 export async function analyzeGarmentWithArk(imageDataUrl: string, apiKey: string, model = "doubao-seed-2-0-lite-260215") {
-  const prompt = `你是易搭的衣物录入助手。只分析图片里最主要的一件衣物，不要猜测看不清的细节。\n请仅输出一个 JSON 对象，字段如下：\nname: 简短中文名称；category: 只能是上衣/下装/外套/连衣裙/鞋子/配饰；colorName: 主要颜色中文；colorHex: 近似十六进制颜色；material: 材质，不确定写待确认；pattern: 图案；warmth: 1到5整数；styleTags: 从简约通勤/温柔松弛/清爽休闲/法式复古/街头感选择；sceneTags: 从上班/商务/开会/上课/约会/聚会/逛街/正式活动/休闲/运动/旅行/户外/居家选择最合适的1到5项；weatherTags: 从炎热/常规/微凉/寒冷/小雨选择；confidence: 0到100；warnings: 图片质量或识别不确定项数组。`;
+  const prompt = `你是易搭的衣物录入助手。只分析图片里最主要的一件衣物，不要猜测看不清的细节。\n请仅输出一个可被 JSON.parse 直接解析的标准 JSON 对象，不要输出 Markdown、注释或额外说明。所有字段名和所有字符串值都必须使用英文双引号，数组中的字符串也必须加英文双引号。\n字段如下：\nname: 简短中文名称；category: 只能是上衣/下装/外套/连衣裙/鞋子/配饰；colorName: 主要颜色中文；colorHex: 近似十六进制颜色；material: 材质，不确定写待确认；pattern: 图案；warmth: 1到5整数；styleTags: 从简约通勤/温柔松弛/清爽休闲/法式复古/街头感选择；sceneTags: 从上班/商务/开会/上课/约会/聚会/逛街/正式活动/休闲/运动/旅行/户外/居家选择最合适的1到5项；weatherTags: 从炎热/常规/微凉/寒冷/小雨选择；confidence: 0到100；warnings: 图片质量或识别不确定项数组。`;
   const response = await fetch(`${ARK_CHINA_BASE_URL}/chat/completions`, {
     method: "POST",
     headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
