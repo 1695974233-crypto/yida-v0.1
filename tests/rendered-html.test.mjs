@@ -87,7 +87,9 @@ test("switches to real wardrobe photos and supports Seedream mannequin previews"
     readFile(new URL("../lib/visitor.ts", import.meta.url), "utf8"),
   ]);
   assert.match(page, /已切换为真实衣柜/);
-  assert.match(page, /重新生成试穿/);
+  assert.match(page, /生成这套试穿/);
+  assert.match(page, /正在后台生成，约需 30—90 秒/);
+  assert.match(page, /pieces-/);
   assert.match(page, /AI 模特身体资料/);
   assert.match(page, /性别/);
   assert.match(page, /女生/);
@@ -96,12 +98,13 @@ test("switches to real wardrobe photos and supports Seedream mannequin previews"
   assert.match(page, /肩胯接近，腰线自然/);
   assert.match(page, /body-reference/);
   assert.match(page, /上传本人全身照/);
-  assert.match(page, /正在给.*穿上这套衣服/);
   assert.match(visualizeRoute, /checkVisualizationAllowance/);
   assert.match(visualizeRoute, /recordSuccessfulVisualization/);
   assert.match(visualizeRoute, /fullBodyImageKey/);
   assert.match(arkAdapter, /visualizeOutfitWithSeedream/);
   assert.match(arkAdapter, /真人虚拟试穿生成器/);
+  assert.match(arkAdapter, /size: "1K"/);
+  assert.match(arkAdapter, /清单没有外套时绝对不能生成外套/);
   assert.match(schema, /bodyHeight/);
   assert.match(schema, /visualizationUsage/);
   assert.match(visitor, /yida_visitor/);

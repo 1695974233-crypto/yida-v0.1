@@ -1,6 +1,6 @@
 "use client";
 
-import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from "react";
 import { defaultCatalogKeys, virtualCatalog } from "./catalog";
 
 type Tab = "today" | "wardrobe" | "discover" | "profile";
@@ -261,7 +261,6 @@ export default function Home() {
   const [fullBodyUploading, setFullBodyUploading] = useState(false);
   const [visualizingKey, setVisualizingKey] = useState<string | null>(null);
   const [visualizedLooks, setVisualizedLooks] = useState<Record<string, string>>({});
-  const attemptedAutoLooks = useRef(new Set<string>());
   const [chatInput, setChatInput] = useState("");
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [activeRequest, setActiveRequest] = useState<string | null>(null);
@@ -449,9 +448,8 @@ export default function Home() {
     const ok = await persist({ action: "update_body_profile", height, weight, bodyShape, modelPresentation });
     if (ok) {
       setVisualizedLooks({});
-      attemptedAutoLooks.current.clear();
       setBodyProfileOpen(false);
-      showToast("身体资料已保存，正在生成右侧试穿效果");
+      showToast("身体资料已保存，可以按需生成试穿效果");
     }
   }
 
@@ -473,8 +471,7 @@ export default function Home() {
       if (!response.ok || !data.imageUrl) throw new Error(data.error ?? "全身照上传失败");
       setFullBodyImageUrl(data.imageUrl);
       setVisualizedLooks({});
-      attemptedAutoLooks.current.clear();
-      showToast("全身照已保存，接下来会生成真人试穿");
+      showToast("全身照已保存，可以按需生成真人试穿");
     } catch (error) {
       showToast(error instanceof Error ? error.message : "全身照上传失败");
     } finally {
@@ -490,7 +487,6 @@ export default function Home() {
       if (!response.ok) throw new Error(data.error ?? "全身照删除失败");
       setFullBodyImageUrl(null);
       setVisualizedLooks({});
-      attemptedAutoLooks.current.clear();
       showToast("已删除全身照，恢复为假人模特");
     } catch (error) {
       showToast(error instanceof Error ? error.message : "全身照删除失败");
@@ -525,40 +521,6 @@ export default function Home() {
       setVisualizingKey(null);
     }
   }
-
-  const autoOutfit = outfits[0];
-  const autoOutfitIds = autoOutfit?.itemIds.join(",") ?? "";
-  useEffect(() => {
-    if (loading || !hasRealGarments || !bodyHeight || !bodyWeight || !autoOutfit || visualizedLooks[autoOutfit.key]) return;
-    const attemptKey = `${autoOutfit.key}:${fullBodyImageUrl ? "person" : "mannequin"}`;
-    if (attemptedAutoLooks.current.has(attemptKey)) return;
-    attemptedAutoLooks.current.add(attemptKey);
-    const controller = new AbortController();
-    let settled = false;
-    setVisualizingKey(autoOutfit.key);
-    void fetch("/api/outfits/visualize", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ itemIds: autoOutfit.itemIds }),
-      signal: controller.signal,
-    }).then(async (response) => {
-      const data = await response.json() as { error?: string; imageUrl?: string; remaining?: number };
-      if (!response.ok || !data.imageUrl) throw new Error(data.error ?? "AI 模特生成失败");
-      settled = true;
-      setVisualizedLooks((current) => ({ ...current, [autoOutfit.key]: data.imageUrl! }));
-      setToast(fullBodyImageUrl ? "真人试穿已生成" : "假人模特穿搭已生成");
-      window.setTimeout(() => setToast(""), 2200);
-    }).catch((error) => {
-      if (error instanceof DOMException && error.name === "AbortError") return;
-      settled = true;
-      setToast(error instanceof Error ? error.message : "AI 模特生成失败，可点击右侧重试");
-      window.setTimeout(() => setToast(""), 2200);
-    }).finally(() => setVisualizingKey((current) => current === autoOutfit.key ? null : current));
-    return () => {
-      controller.abort();
-      if (!settled) attemptedAutoLooks.current.delete(attemptKey);
-    };
-  }, [autoOutfit, autoOutfit?.key, autoOutfitIds, bodyHeight, bodyShape, bodyWeight, fullBodyImageUrl, hasRealGarments, loading, modelPresentation, visualizedLooks]);
 
   async function selectScene(nextScene: string | null) {
     setScene(nextScene);
@@ -848,14 +810,14 @@ export default function Home() {
                   <div className={`outfit-visual ${hasRealGarments ? "real-outfit-visual" : ""}`}>
                     <div className="match-label"><span>✦</span>{outfit.score}% 匹配</div>
                     {hasRealGarments ? <div className="real-look-layout">
-                      <div className="real-piece-grid" aria-label="本套真实衣物">
+                      <div className={`real-piece-grid pieces-${Math.min(outfitGarments.length, 4)}`} aria-label={`本套真实衣物，共 ${outfitGarments.length} 件`}>
                         {outfitGarments.map((garment) => <div className="real-piece" key={garment.id}>{garment.image ? <img src={garment.image} alt={garment.name} /> : <GarmentArt garment={garment} compact />}<span>{garment.name}</span></div>)}
                       </div>
                       <div className="model-panel">
                         {visualizedLooks[outfit.key] ? <><img className="generated-model" src={visualizedLooks[outfit.key]} alt={`${outfit.title} ${fullBodyImageUrl ? "真人" : "假人模特"}试穿效果`} /><span className="tryon-mode-badge">{fullBodyImageUrl ? "本人试穿" : `${modelPresentation}假人`}</span></> : <>
                           <div className={`mannequin-placeholder ${visualizingKey === outfit.key ? "dressing" : ""}`} aria-hidden="true"><i className="mannequin-head" /><i className="mannequin-body" /><i className="mannequin-legs" /></div>
-                          <strong>{visualizingKey === outfit.key ? `正在给${fullBodyImageUrl ? "你" : "假人"}穿上这套衣服…` : bodyHeight && bodyWeight ? `${modelPresentation} · ${bodyHeight}cm · ${bodyWeight}kg` : "先填写资料生成试穿"}</strong>
-                          <button disabled={visualizingKey === outfit.key} onClick={() => generateOutfitLook(outfit)}>{visualizingKey === outfit.key ? "生成中，请稍候" : bodyHeight && bodyWeight ? "重新生成试穿" : "填写资料"}</button>
+                          <strong>{visualizingKey === outfit.key ? "正在后台生成，约需 30—90 秒" : bodyHeight && bodyWeight ? `${modelPresentation} · ${bodyHeight}cm · ${bodyWeight}kg` : "先填写资料生成试穿"}</strong>
+                          <button disabled={visualizingKey === outfit.key} onClick={() => generateOutfitLook(outfit)}>{visualizingKey === outfit.key ? "可继续浏览，完成后提醒" : bodyHeight && bodyWeight ? "生成这套试穿" : "填写资料"}</button>
                         </>}
                       </div>
                     </div> : <div className="look-canvas">
