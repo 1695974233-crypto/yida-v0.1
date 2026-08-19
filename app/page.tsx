@@ -260,6 +260,7 @@ export default function Home() {
   const [fullBodyUploading, setFullBodyUploading] = useState(false);
   const [visualizingKey, setVisualizingKey] = useState<string | null>(null);
   const [visualizedLooks, setVisualizedLooks] = useState<Record<string, string>>({});
+  const [visualizationErrors, setVisualizationErrors] = useState<Record<string, string>>({});
   const [chatInput, setChatInput] = useState("");
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [activeRequest, setActiveRequest] = useState<string | null>(null);
@@ -506,6 +507,11 @@ export default function Home() {
       showToast("请先填写身体资料");
       return;
     }
+    setVisualizationErrors((current) => {
+      const next = { ...current };
+      delete next[outfit.key];
+      return next;
+    });
     setVisualizingKey(outfit.key);
     try {
       const response = await fetch("/api/outfits/visualize", {
@@ -521,7 +527,9 @@ export default function Home() {
       setVisualizedLooks((current) => ({ ...current, [outfit.key]: data.imageUrl! }));
       showToast(typeof data.remaining === "number" ? `AI 模特已生成，今天还可生成 ${data.remaining} 次` : "AI 模特已生成");
     } catch (error) {
-      showToast(error instanceof Error ? error.message : "AI 模特生成失败");
+      const message = error instanceof Error ? error.message : "AI 模特生成失败";
+      setVisualizationErrors((current) => ({ ...current, [outfit.key]: message }));
+      showToast(message);
     } finally {
       setVisualizingKey(null);
     }
@@ -855,7 +863,7 @@ export default function Home() {
                       </div>
                       <div className="model-panel effect-panel">
                         {visualizedLooks[outfit.key] ? <><img className="generated-model" src={visualizedLooks[outfit.key]} alt={`${outfit.title} ${fullBodyImageUrl ? "真人" : "假人模特"}试穿效果`} /><span className="tryon-mode-badge">{fullBodyImageUrl ? "本人试穿" : `${modelPresentation}假人`}</span></> : <>
-                          {visualizingKey === outfit.key ? <div className="effect-status" role="status"><span className="effect-spinner">✦</span><strong>正在生成效果图</strong><small>约需 30—90 秒<br />可以继续浏览</small></div> : <button className="effect-trigger" onClick={() => generateOutfitLook(outfit)} aria-label={`生成“${outfit.title}”的穿搭效果图`}><span>✦</span><strong>效果图</strong><small>{bodyHeight && bodyWeight ? "点击生成模特试穿" : "先填写身体资料"}</small></button>}
+                          {visualizingKey === outfit.key ? <div className="effect-status" role="status"><span className="effect-spinner">✦</span><strong>正在生成效果图</strong><small>多衣物融合通常需要一段时间<br />可以继续浏览</small></div> : <button className="effect-trigger" onClick={() => generateOutfitLook(outfit)} aria-label={`生成“${outfit.title}”的穿搭效果图`} title={visualizationErrors[outfit.key]}><span>✦</span><strong>{visualizationErrors[outfit.key] ? "重新生成" : "效果图"}</strong><small className={visualizationErrors[outfit.key] ? "effect-error" : ""}>{visualizationErrors[outfit.key] ?? (bodyHeight && bodyWeight ? "点击生成模特试穿" : "先填写身体资料")}</small></button>}
                         </>}
                       </div>
                     </div> : <div className="look-canvas">

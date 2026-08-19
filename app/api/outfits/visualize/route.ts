@@ -47,7 +47,7 @@ export async function POST(request: Request) {
       return Response.json({ error: "AI 模特只能使用你真实上传的衣服" }, { status: 400 });
     }
     const ordered = itemIds.map((id) => selected.find((item) => item.id === id)!);
-    const cacheHash = await shortHash(JSON.stringify({ visualizerVersion: 2, itemIds: [...itemIds].sort((a, b) => a - b), height: profile.bodyHeight, weight: profile.bodyWeight, shape: profile.bodyShape, presentation: normalizedPresentation, personReference: profile.fullBodyImageKey ?? null }));
+    const cacheHash = await shortHash(JSON.stringify({ visualizerVersion: 3, itemIds: [...itemIds].sort((a, b) => a - b), height: profile.bodyHeight, weight: profile.bodyWeight, shape: profile.bodyShape, presentation: normalizedPresentation, personReference: profile.fullBodyImageKey ?? null }));
     const outputKey = `${visitor.id}/looks/${cacheHash}.png`;
     if (await runtime.GARMENT_IMAGES.head(outputKey)) {
       return Response.json({ imageUrl: `/api/garments/image?key=${encodeURIComponent(outputKey)}`, cached: true });

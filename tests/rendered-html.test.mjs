@@ -106,7 +106,8 @@ test("switches to real wardrobe photos and supports Seedream mannequin previews"
   assert.match(visualizeRoute, /fullBodyImageKey/);
   assert.match(arkAdapter, /visualizeOutfitWithSeedream/);
   assert.match(arkAdapter, /真人虚拟试穿生成器/);
-  assert.match(arkAdapter, /size: "1K"/);
+  assert.match(arkAdapter, /size: "2K"/);
+  assert.match(arkAdapter, /seedreamError/);
   assert.match(arkAdapter, /清单没有外套时绝对不能生成外套/);
   assert.match(schema, /bodyHeight/);
   assert.match(schema, /visualizationUsage/);

@@ -131,6 +131,25 @@ function decodeBase64(value: string) {
   return bytes;
 }
 
+async function seedreamError(response: Response, fallback: string) {
+  let code = "";
+  let message = "";
+  try {
+    const body = await response.json() as { error?: { code?: string; message?: string } | string };
+    if (typeof body.error === "string") message = body.error;
+    else {
+      code = body.error?.code ?? "";
+      message = body.error?.message ?? "";
+    }
+  } catch {
+    // The provider may return an empty or non-JSON error response.
+  }
+  if (code.includes("SensitiveContent")) return new Error("这套图片被模型安全审核拦截，请更换其中一张衣物照片后重试");
+  if (response.status === 429 || code === "QuotaExceeded") return new Error("当前生成请求较多，请稍后再试；本次不会扣除次数");
+  if (response.status === 400) return new Error(`模型暂时无法处理这组衣物${message ? `：${message.slice(0, 80)}` : "，请换一套后重试"}`);
+  return new Error(`${fallback}（${response.status}）`);
+}
+
 export async function enhanceGarmentWithSeedream(imageDataUrl: string, apiKey: string, model = "doubao-seedream-5-0-260128") {
   const response = await fetch(`${ARK_CHINA_BASE_URL}/images/generations`, {
     method: "POST",
@@ -139,7 +158,7 @@ export async function enhanceGarmentWithSeedream(imageDataUrl: string, apiKey: s
       model,
       image: [imageDataUrl],
       prompt: "把图片中唯一一件衣物整理为电商衣柜展示图：保持衣物真实颜色、版型、长度、材质纹理、图案和所有细节完全不变；去除人物、衣架和杂乱背景；衣物自然平铺并完整居中；纯白背景，柔和均匀光线，不添加任何新元素。",
-      size: "1K",
+      size: "2K",
       output_format: "png",
       response_format: "b64_json",
       sequential_image_generation: "disabled",
@@ -147,7 +166,7 @@ export async function enhanceGarmentWithSeedream(imageDataUrl: string, apiKey: s
     }),
     signal: AbortSignal.timeout(90_000),
   });
-  if (!response.ok) throw new Error(`Seedream 图片整理失败（${response.status}）`);
+  if (!response.ok) throw await seedreamError(response, "Seedream 图片整理失败");
   const body = await response.json() as { data?: Array<{ b64_json?: string }> };
   const encoded = body.data?.[0]?.b64_json;
   if (!encoded) throw new Error("Seedream 没有返回展示图");
@@ -178,7 +197,7 @@ export async function visualizeOutfitWithSeedream(
       model,
       image: personReferenceDataUrl ? [personReferenceDataUrl, ...imageDataUrls] : imageDataUrls,
       prompt,
-      size: "1K",
+      size: "2K",
       output_format: "png",
       response_format: "b64_json",
       sequential_image_generation: "disabled",
@@ -186,7 +205,7 @@ export async function visualizeOutfitWithSeedream(
     }),
     signal: AbortSignal.timeout(120_000),
   });
-  if (!response.ok) throw new Error(`AI 模特生成失败（${response.status}）`);
+  if (!response.ok) throw await seedreamError(response, "AI 模特生成失败");
   const body = await response.json() as { data?: Array<{ b64_json?: string }> };
   const encoded = body.data?.[0]?.b64_json;
   if (!encoded) throw new Error("Seedream 没有返回模特图片");

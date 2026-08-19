@@ -89,6 +89,7 @@ h3 { margin-bottom: 7px; font-size: 18px; }
 .effect-trigger > span, .effect-status > span { width: 37px; height: 37px; display: grid; place-items: center; border-radius: 50%; color: white; background: var(--sage-dark); font-size: 15px; }
 .model-panel .effect-trigger strong, .effect-status strong { margin: 0; color: var(--ink); font-size: 11px; }
 .effect-trigger small, .effect-status small { color: var(--muted); font-size: 8px; line-height: 1.5; }
+.effect-trigger small.effect-error { display: -webkit-box; overflow: hidden; color: #9b4b45; -webkit-line-clamp: 3; -webkit-box-orient: vertical; }
 .effect-status { display: flex; flex-direction: column; align-items: center; gap: 7px; }
 .effect-spinner { animation: effect-spin 1.4s linear infinite; }
 @keyframes effect-spin { to { transform: rotate(360deg); } }
