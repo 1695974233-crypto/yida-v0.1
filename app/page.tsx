@@ -50,6 +50,80 @@ type GarmentDraft = {
   warnings: string[];
 };
 
+type InspirationLook = {
+  key: string;
+  title: string;
+  subtitle: string;
+  image: string;
+  sourceUrl: string;
+  sourceName: string;
+  gender: "女生" | "男生";
+  seasons: string[];
+  minTemperature: number;
+  maxTemperature: number;
+  styles: string[];
+  scenes: string[];
+};
+
+const inspirationLooks: InspirationLook[] = [
+  {
+    key: "summer-denim-skirt",
+    title: "短上衣与牛仔裙的轻盈比例",
+    subtitle: "适合炎热天气的清爽街头感，露肤适度，运动鞋让整套更日常。",
+    image: "https://images.unsplash.com/photo-1780566759959-73ce2af09f7c?auto=format&fit=crop&w=1200&q=82",
+    sourceUrl: "https://unsplash.com/photos/young-woman-posing-in-casual-outfit-with-black-handbag-zEGIgG2aYyQ",
+    sourceName: "Anton K Wibowo / Unsplash",
+    gender: "女生",
+    seasons: ["夏季"],
+    minTemperature: 25,
+    maxTemperature: 38,
+    styles: ["清爽休闲", "街头感"],
+    scenes: ["休闲", "逛街", "旅行"],
+  },
+  {
+    key: "summer-city-jeans",
+    title: "短款上衣与高腰牛仔裤",
+    subtitle: "用高腰线拉长比例，适合城市漫步、朋友聚会和轻松约会。",
+    image: "https://images.unsplash.com/photo-1767786887389-5796cb39e227?auto=format&fit=crop&w=1200&q=82",
+    sourceUrl: "https://unsplash.com/photos/young-woman-in-casual-clothes-standing-outdoors-yJXXwAFjg0Y",
+    sourceName: "Rodrigo Rodrigues / Unsplash",
+    gender: "女生",
+    seasons: ["夏季"],
+    minTemperature: 24,
+    maxTemperature: 37,
+    styles: ["清爽休闲", "温柔松弛"],
+    scenes: ["休闲", "约会", "旅行"],
+  },
+  {
+    key: "brown-coat-city",
+    title: "大地色风衣的层次感",
+    subtitle: "降温或有风时，用同色系内搭保持利落，适合通勤与城市出行。",
+    image: "https://images.unsplash.com/photo-1548007936-c5c12f4456b8?auto=format&fit=crop&w=1200&q=82",
+    sourceUrl: "https://unsplash.com/photos/woman-in-brown-coat-standing-on-street-during-daytime-scDoY4YJeoo",
+    sourceName: "Jed Villejo / Unsplash",
+    gender: "女生",
+    seasons: ["春季", "秋季"],
+    minTemperature: 10,
+    maxTemperature: 24,
+    styles: ["简约通勤", "法式复古"],
+    scenes: ["上班", "开会", "约会"],
+  },
+  {
+    key: "mens-corduroy-layer",
+    title: "灯芯绒外套的复古叠穿",
+    subtitle: "衬衫、领带与休闲外套混搭，正式但不拘谨，适合约会和创意办公。",
+    image: "https://images.unsplash.com/photo-1764593008673-af6056758b4a?auto=format&fit=crop&w=1200&q=82",
+    sourceUrl: "https://unsplash.com/photos/man-in-stylish-outfit-walks-down-street-X-Vp-swqmKQ",
+    sourceName: "Dion Martins / Unsplash",
+    gender: "男生",
+    seasons: ["春季", "秋季", "冬季"],
+    minTemperature: 5,
+    maxTemperature: 23,
+    styles: ["法式复古", "街头感"],
+    scenes: ["上班", "约会", "聚会"],
+  },
+];
+
 const garmentSceneGroups = [
   { label: "工作学习", options: ["上班", "商务", "开会", "上课"] },
   { label: "社交生活", options: ["约会", "聚会", "逛街", "正式活动"] },
@@ -308,7 +382,9 @@ export default function Home() {
   const [garmentDraft, setGarmentDraft] = useState<GarmentDraft>({ name: "", category: "上衣", colorName: "米白", colorHex: "#eeeae2", material: "待确认", pattern: "纯色", warmth: 2, styleTags: [], sceneTags: ["上班", "约会", "休闲"], weatherTags: ["常规"], confidence: 0, warnings: [] });
   const [liked, setLiked] = useState<string[]>([]);
   const [saved, setSaved] = useState<string[]>([]);
+  const [disliked, setDisliked] = useState<string[]>([]);
   const [worn, setWorn] = useState<string[]>([]);
+  const [inspirationSavedOnly, setInspirationSavedOnly] = useState(false);
   const [rotation, setRotation] = useState(0);
   const [toast, setToast] = useState("");
   const [loading, setLoading] = useState(true);
@@ -328,6 +404,15 @@ export default function Home() {
     return Array.from({ length: pageSize }, (_, index) => generatedOutfits[(rotation + index) % generatedOutfits.length]);
   }, [generatedOutfits, rotation]);
   const todayLabel = new Intl.DateTimeFormat("zh-CN", { month: "long", day: "numeric", weekday: "long", timeZone: "Asia/Shanghai" }).format(new Date());
+  const currentSeason = [12, 1, 2].includes(new Date().getMonth() + 1) ? "冬季" : [3, 4, 5].includes(new Date().getMonth() + 1) ? "春季" : [6, 7, 8].includes(new Date().getMonth() + 1) ? "夏季" : "秋季";
+  const visibleInspirationLooks = useMemo(() => {
+    const genderLooks = inspirationLooks.filter((look) => look.gender === modelPresentation && !disliked.includes(`inspiration:${look.key}`));
+    const suitable = genderLooks.filter((look) => weather
+      ? weather.apparentTemperature >= look.minTemperature && weather.apparentTemperature <= look.maxTemperature
+      : look.seasons.includes(currentSeason));
+    const pool = suitable.length ? suitable : genderLooks;
+    return inspirationSavedOnly ? pool.filter((look) => saved.includes(`inspiration:${look.key}`)) : pool;
+  }, [currentSeason, disliked, inspirationSavedOnly, modelPresentation, saved, weather]);
 
   useEffect(() => {
     fetch("/api/auth/me", { cache: "no-store" })
@@ -366,6 +451,7 @@ export default function Home() {
         setOnboarding(!data.profile.onboardingCompleted);
         setLiked(data.feedback.filter((item) => item.action === "like").map((item) => item.outfitKey));
         setSaved(data.feedback.filter((item) => item.action === "save").map((item) => item.outfitKey));
+        setDisliked(data.feedback.filter((item) => item.action === "dislike").map((item) => item.outfitKey));
         setWorn(data.feedback.filter((item) => item.action === "worn").map((item) => item.outfitKey));
         setActiveRequest(data.chat.activeRequest);
         setRequestConstraints(data.chat.constraints);
@@ -457,6 +543,7 @@ export default function Home() {
       setScene(data.profile.lastScene);
       setLiked(data.feedback.filter((item) => item.action === "like").map((item) => item.outfitKey));
       setSaved(data.feedback.filter((item) => item.action === "save").map((item) => item.outfitKey));
+      setDisliked(data.feedback.filter((item) => item.action === "dislike").map((item) => item.outfitKey));
       setWorn(data.feedback.filter((item) => item.action === "worn").map((item) => item.outfitKey));
       setActiveRequest(data.chat.activeRequest);
       setRequestConstraints(data.chat.constraints);
@@ -752,7 +839,7 @@ export default function Home() {
 
   async function recordFeedback(outfitKey: string, feedbackAction: "like" | "save" | "dislike" | "worn") {
     const ok = await persist({ action: "feedback", outfitKey, feedbackAction });
-    if (ok) showToast(feedbackAction === "worn" ? "已记录：今天穿这套" : feedbackAction === "dislike" ? "收到，下次会减少类似搭配" : "你的偏好已经保存");
+    if (ok) showToast(feedbackAction === "worn" ? "已记录：今天穿这套" : feedbackAction === "dislike" ? "收到，已移除这条参考并更新偏好" : "你的偏好已经保存");
   }
 
   async function sendText(rawMessage: string) {
@@ -839,13 +926,39 @@ export default function Home() {
         </div>
       )}
 
+      <aside className="desktop-sidebar" aria-label="易搭功能导航">
+        <button className="desktop-brand" onClick={() => navTo("today")}><span className="brand-mark">易</span><span><strong>易搭</strong><small>AI 穿搭助手</small></span></button>
+        <nav>
+          <button className={tab === "today" ? "active" : ""} onClick={() => navTo("today")}><span>⌂</span><b>首页</b></button>
+          <button className={tab === "wardrobe" ? "active" : ""} onClick={() => navTo("wardrobe")}><span>▦</span><b>个人衣柜</b><em>{recommendationGarments.length}</em></button>
+          <button className={tab === "discover" && !inspirationSavedOnly ? "active" : ""} onClick={() => { setInspirationSavedOnly(false); navTo("discover"); }}><span>✦</span><b>穿搭参考</b></button>
+          <button className={tab === "discover" && inspirationSavedOnly ? "active" : ""} onClick={() => { setInspirationSavedOnly(true); navTo("discover"); }}><span>♡</span><b>我的收藏</b><em>{saved.filter((key) => key.startsWith("inspiration:")).length}</em></button>
+          <button className={tab === "profile" ? "active" : ""} onClick={() => navTo("profile")}><span>○</span><b>我的</b></button>
+        </nav>
+        <section className="sidebar-progress"><div><span>风格档案</span><strong>{styles.length ? "正在形成" : "等待了解"}</strong></div><div className="sidebar-progress-bar"><i style={{ width: `${Math.min(92, 28 + liked.length * 6)}%` }} /></div><small>每一次喜欢与不喜欢，都会让推荐更像你。</small></section>
+        <button className="sidebar-profile" onClick={() => navTo("profile")}><span>{account.name.slice(0, 1).toUpperCase()}</span><div><strong>{account.name.includes("@") ? "易搭用户" : account.name}</strong><small>{account.email}</small></div><b>›</b></button>
+      </aside>
+
+      <div className="workspace-main">
+
       <header className="topbar">
-        <button className="logo" onClick={() => navTo("today")} aria-label="返回今日推荐"><span className="brand-mark">易</span><span>易搭</span></button>
-        <div className="top-actions"><button className="icon-button" aria-label="消息">♡</button><button className="avatar" onClick={() => navTo("profile")} aria-label="个人中心">晚</button></div>
+        <button className="logo" onClick={() => navTo("today")} aria-label="返回首页"><span className="brand-mark">易</span><span>{tab === "today" ? "对话" : tab === "wardrobe" ? "个人衣柜" : tab === "discover" ? (inspirationSavedOnly ? "我的收藏" : "穿搭参考") : "我的"}</span></button>
+        <div className="top-actions"><button className="weather-top-button" onClick={() => setWeatherOpen(true)}><span>{weather?.icon ?? "🌤️"}</span><strong>{weather ? `${weather.temperature}℃ · ${weather.city}` : "设置天气"}</strong></button><button className="avatar" onClick={() => navTo("profile")} aria-label="个人中心">{account.name.slice(0, 1).toUpperCase()}</button></div>
       </header>
 
       {tab === "today" && (
         <section className="screen today-screen">
+          <section className="assistant-home" aria-labelledby="assistant-home-title">
+            <div className="assistant-home-copy"><span className="home-mode">✦ 衣橱模式</span><p>{todayLabel}</p><h1 id="assistant-home-title">今天想穿成什么感觉？</h1><p>告诉我场景、心情或任何具体要求。我会结合天气、脏衣篓和你的真实衣柜来推荐。</p></div>
+            {chatMessages.length > 0 && <div className="home-conversation" aria-live="polite">{chatMessages.slice(-2).map((message) => <div key={`home-${message.id}-${message.createdAt ?? "now"}`} className={`home-message ${message.role}`}>{message.role === "assistant" && <span>易</span>}<p>{message.content}</p></div>)}</div>}
+            <div className="home-quick-prompts">{["上班见客户，利落一点", "周末和朋友吃饭", "今天想穿得显高", "不想穿得太正式"].map((prompt) => <button key={prompt} onClick={() => sendText(prompt)}>{prompt}</button>)}</div>
+            <form className="home-chat-input" onSubmit={sendMessage}>
+              <textarea value={chatInput} onChange={(event) => setChatInput(event.target.value)} placeholder="例如：今晚和朋友吃饭，想舒服一点，但不要太随意……" maxLength={500} aria-label="输入你的穿搭需求" rows={2} />
+              <div><button type="button" className="chat-add-button" onClick={() => navTo("wardrobe")} aria-label="前往添加衣服">＋</button><span>会自动参考天气与可用衣物</span><button type="submit" className="home-send-button" disabled={!chatInput.trim() || saving} aria-label="发送穿搭需求">↑</button></div>
+            </form>
+          </section>
+
+          <div className="home-section-divider"><span>或者快速选择场景</span></div>
           <div className="greeting-row">
             <div><p className="date-label">{todayLabel}</p><h1>晚上好，晚晚</h1></div>
             <button className="weather-pill" onClick={() => setWeatherOpen(true)} aria-label="设置天气"><span>{weather?.icon ?? "🌤️"}</span><div><strong>{weather ? `${weather.temperature}℃` : "设置天气"}</strong><small>{weather ? `${weather.condition} · ${weather.city}` : "定位或选择城市"}</small></div></button>
@@ -950,13 +1063,17 @@ export default function Home() {
 
       {tab === "discover" && (
         <section className="screen discover-screen">
-          <div className="page-title-row"><div><p className="eyebrow">发现新的可能</p><h1>风格灵感</h1><p>喜欢或跳过，易搭会慢慢读懂你。</p></div></div>
-          <div className="mood-board">
-            <article className="mood-card mood-large"><div className="editorial-look look-a"><span /><span /><span /></div><div><small>本周灵感 · 通勤</small><h2>清爽的低饱和叠穿</h2><p>蓝灰与奶油白，是阴雨天也不沉闷的组合。</p><button onClick={() => showToast("已收藏到我的偏爱穿搭")}>♡ 收下这个风格</button></div></article>
-            <article className="mood-card"><div className="editorial-look look-b"><span /><span /></div><small>松弛日常</small><h3>针织衫与牛仔裤</h3></article>
-            <article className="mood-card"><div className="editorial-look look-c"><span /><span /></div><small>轻通勤</small><h3>西装也可以不严肃</h3></article>
-          </div>
-          <div className="taste-card"><div><span>你的偏好正在成形</span><strong>简约通勤 82%</strong><strong>清爽休闲 71%</strong></div><button onClick={() => showToast("偏好设置将在下一阶段开放")}>查看偏好 →</button></div>
+          <div className="page-title-row inspiration-heading"><div><p className="eyebrow">为你筛过天气与季节</p><h1>{inspirationSavedOnly ? "我的收藏" : "穿搭参考"}</h1><p>{inspirationSavedOnly ? "你收下的风格灵感都在这里。" : `当前按 ${modelPresentation} · ${weather ? `体感 ${weather.apparentTemperature}℃` : currentSeason} · ${styles.slice(0, 2).join(" / ")} 推荐。`}</p></div>{!inspirationSavedOnly && <button className="filter-summary" onClick={() => setBodyProfileOpen(true)}>调整性别与身材</button>}</div>
+          {visibleInspirationLooks.length ? <div className="inspiration-grid">
+            {visibleInspirationLooks.map((look) => {
+              const feedbackKey = `inspiration:${look.key}`;
+              return <article className="inspiration-card" key={look.key}>
+                <div className="inspiration-photo"><img src={look.image} alt={look.title} /><span>{look.seasons.join(" / ")} · {look.minTemperature}—{look.maxTemperature}℃</span><button className={saved.includes(feedbackKey) ? "saved" : ""} onClick={() => recordFeedback(feedbackKey, "save")} aria-label="收藏这套参考">{saved.includes(feedbackKey) ? "♥" : "♡"}</button></div>
+                <div className="inspiration-copy"><div className="inspiration-tags">{look.styles.map((style) => <span key={style}>{style}</span>)}</div><h2>{look.title}</h2><p>{look.subtitle}</p><small>适合：{look.scenes.join(" · ")}</small><div className="inspiration-actions"><button className={liked.includes(feedbackKey) ? "active" : ""} onClick={() => recordFeedback(feedbackKey, "like")}>♡ 喜欢</button><button onClick={() => recordFeedback(feedbackKey, "dislike")}>不感兴趣</button><a href={look.sourceUrl} target="_blank" rel="noreferrer">图片：{look.sourceName} ↗</a></div></div>
+              </article>;
+            })}
+          </div> : <div className="empty-state inspiration-empty"><span>♡</span><h3>{inspirationSavedOnly ? "还没有收藏穿搭参考" : "这一批参考已经看完了"}</h3><p>{inspirationSavedOnly ? "在穿搭参考中点击收藏，喜欢的风格会出现在这里。" : "你反馈的信息已经保存，下一批会更贴近你的偏好。"}</p>{inspirationSavedOnly && <button className="upload-button" onClick={() => setInspirationSavedOnly(false)}>去看看穿搭参考</button>}</div>}
+          <div className="inspiration-note"><strong>为什么暂时不是小红书图片？</strong><p>当前先使用有明确授权来源的公开图片验证推荐闭环。正式接入小红书等平台内容前，需要获得开放接口或内容授权，不能直接抓取和搬运。</p></div>
         </section>
       )}
 
@@ -976,6 +1093,7 @@ export default function Home() {
         <button className={tab === "discover" ? "active" : ""} onClick={() => navTo("discover")}><span>✦</span>发现</button>
         <button className={tab === "profile" ? "active" : ""} onClick={() => navTo("profile")}><span>○</span>我的</button>
       </nav>
+      </div>
 
       {weatherOpen && (
         <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setWeatherOpen(false); }}>
