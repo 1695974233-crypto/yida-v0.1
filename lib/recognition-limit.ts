@@ -1,6 +1,6 @@
 import { env } from "cloudflare:workers";
 
-const DAILY_RECOGNITION_LIMIT = 10;
+const DAILY_RECOGNITION_LIMIT = 20;
 
 type RuntimeEnv = { DB?: D1Database };
 

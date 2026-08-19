@@ -39,10 +39,10 @@ export async function POST(request: Request) {
     if (!new Set(["image/jpeg", "image/png", "image/webp"]).has(file.type)) return Response.json({ error: "目前支持 JPG、PNG 或 WebP 图片" }, { status: 415 });
     if (file.size > 900 * 1024) return Response.json({ error: "图片处理后仍然过大，请重新选择" }, { status: 413 });
 
-    const usage = runtime.ARK_API_KEY ? await consumeRecognition(userId) : { allowed: true as const, limit: 10, remaining: 10 };
+    const usage = runtime.ARK_API_KEY ? await consumeRecognition(userId) : { allowed: true as const, limit: 20, remaining: 20 };
     if (!usage.allowed) {
       return Response.json({
-        error: "今天的 10 次衣物识别额度已用完，请明天再试",
+        error: "今天的 20 次衣物识别额度已用完，请明天再试",
         limit: usage.limit,
         remaining: usage.remaining,
       }, { status: 429 });
