@@ -3,6 +3,8 @@ import { env } from "cloudflare:workers";
 import { getDb } from "../../../db";
 import { chatMessages, chatSessions, feedback, garments, profiles } from "../../../db/schema";
 import { getVisitor, visitorCookie } from "../../../lib/visitor";
+import { usesSupabaseData } from "../../../lib/supabase-data";
+import { getSupabaseState, postSupabaseState } from "../../../lib/supabase-state";
 import { defaultCatalogKeys, virtualCatalog } from "../../catalog";
 
 export const dynamic = "force-dynamic";
@@ -213,6 +215,7 @@ async function stateFor(userId: string) {
 
 export async function GET(request: Request) {
   try {
+    if (usesSupabaseData()) return await getSupabaseState(request);
     const user = await getVisitor(request);
     await ensureUser(user.id, user.name);
     const response = Response.json(await stateFor(user.id));
@@ -221,12 +224,15 @@ export async function GET(request: Request) {
     return response;
   } catch (error) {
     console.error("state GET failed", error);
-    return Response.json({ error: "衣柜加载失败" }, { status: 500 });
+    const message = error instanceof Error ? error.message : "衣柜加载失败";
+    const status = /请先登录|登录状态已失效/.test(message) ? 401 : 500;
+    return Response.json({ error: status === 401 ? message : "衣柜加载失败" }, { status });
   }
 }
 
 export async function POST(request: Request) {
   try {
+    if (usesSupabaseData()) return await postSupabaseState(request);
     const user = await getVisitor(request);
     await ensureUser(user.id, user.name);
     const payload = await request.json() as Record<string, unknown>;
@@ -348,6 +354,8 @@ export async function POST(request: Request) {
     return response;
   } catch (error) {
     console.error("state POST failed", error);
-    return Response.json({ error: "保存失败" }, { status: 500 });
+    const message = error instanceof Error ? error.message : "保存失败";
+    const status = /请先登录|登录状态已失效/.test(message) ? 401 : 500;
+    return Response.json({ error: status === 401 ? message : "保存失败" }, { status });
   }
 }

@@ -25,20 +25,21 @@ test("server-renders the Yida product shell", async () => {
   assert.doesNotMatch(html, /Your site is taking shape|codex-preview/i);
 });
 
-test("includes ChatGPT sign-in, sign-out and account-bound data", async () => {
-  const [page, authRoute, visitor, schema] = await Promise.all([
+test("includes Supabase sign-in and account-bound data", async () => {
+  const [page, authRoute, supabaseData, migration] = await Promise.all([
     readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/api/auth/me/route.ts", import.meta.url), "utf8"),
-    readFile(new URL("../lib/visitor.ts", import.meta.url), "utf8"),
-    readFile(new URL("../db/schema.ts", import.meta.url), "utf8"),
+    readFile(new URL("../lib/supabase-data.ts", import.meta.url), "utf8"),
+    readFile(new URL("../supabase/migrations/20260819_yida_core.sql", import.meta.url), "utf8"),
   ]);
-  assert.match(page, /signin-with-chatgpt/);
-  assert.match(page, /signout-with-chatgpt/);
+  assert.match(page, /邮箱登录/);
+  assert.match(page, /signInWithOAuth/);
+  assert.doesNotMatch(page, /signin-with-chatgpt/);
   assert.match(page, /今天穿什么/);
-  assert.match(authRoute, /getChatGPTUser/);
-  assert.match(visitor, /account_links/);
-  assert.match(schema, /accountLinks/);
-  await access(new URL("../drizzle/0009_salty_shriek.sql", import.meta.url));
+  assert.match(authRoute, /getSupabaseUser/);
+  assert.match(supabaseData, /requireUserData/);
+  assert.match(migration, /users_manage_own_rows/);
+  assert.match(migration, /garment-images/);
 });
 
 test("includes the phase-three garment pipeline", async () => {

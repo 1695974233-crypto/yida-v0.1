@@ -1,4 +1,5 @@
 import { env } from "cloudflare:workers";
+import { requireUserData, usesSupabaseData } from "./supabase-data";
 
 const DAILY_RECOGNITION_LIMIT = 20;
 
@@ -8,7 +9,19 @@ function chinaDateKey(now = new Date()) {
   return new Date(now.getTime() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10);
 }
 
-export async function consumeRecognition(visitorId: string) {
+export async function consumeRecognition(visitorId: string, request?: Request) {
+  if (usesSupabaseData()) {
+    if (!request) throw new Error("缺少登录请求信息");
+    const { client, user } = await requireUserData(request);
+    const usageDate = chinaDateKey();
+    const current = await client.from("recognition_usage").select("count").eq("user_id", user.id).eq("usage_date", usageDate).maybeSingle();
+    if (current.error) throw new Error(current.error.message);
+    const nextCount = (current.data?.count ?? 0) + 1;
+    if (nextCount > DAILY_RECOGNITION_LIMIT) return { allowed: false as const, limit: DAILY_RECOGNITION_LIMIT, remaining: 0 };
+    const saved = await client.from("recognition_usage").upsert({ user_id: user.id, usage_date: usageDate, count: nextCount, updated_at: new Date().toISOString() }, { onConflict: "user_id,usage_date" });
+    if (saved.error) throw new Error(saved.error.message);
+    return { allowed: true as const, limit: DAILY_RECOGNITION_LIMIT, remaining: DAILY_RECOGNITION_LIMIT - nextCount };
+  }
   const database = (env as unknown as RuntimeEnv).DB;
   if (!database) throw new Error("每日识别额度服务暂时不可用");
 

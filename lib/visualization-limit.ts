@@ -1,4 +1,5 @@
 import { env } from "cloudflare:workers";
+import { requireUserData, usesSupabaseData } from "./supabase-data";
 
 const DAILY_VISUALIZATION_LIMIT = 10;
 
@@ -6,7 +7,7 @@ type RuntimeEnv = { DB?: D1Database; YIDA_DEVELOPER_EMAILS?: string };
 
 function isDeveloper(email?: string) {
   if (!email) return false;
-  const configured = (env as unknown as RuntimeEnv).YIDA_DEVELOPER_EMAILS ?? "";
+  const configured = (env as unknown as RuntimeEnv).YIDA_DEVELOPER_EMAILS ?? process.env.YIDA_DEVELOPER_EMAILS ?? "";
   return configured.split(",").some((item) => item.trim().toLowerCase() === email.trim().toLowerCase());
 }
 
@@ -24,8 +25,17 @@ async function ensureVisualizationTable(database: D1Database) {
   )`).run();
 }
 
-export async function checkVisualizationAllowance(visitorId: string, email?: string) {
+export async function checkVisualizationAllowance(visitorId: string, email?: string, request?: Request) {
   if (isDeveloper(email)) return { allowed: true as const, limit: null, remaining: null, developer: true as const };
+  if (usesSupabaseData()) {
+    if (!request) throw new Error("缺少登录请求信息");
+    const { client, user } = await requireUserData(request);
+    const usageDate = chinaDateKey();
+    const current = await client.from("visualization_usage").select("count").eq("user_id", user.id).eq("usage_date", usageDate).maybeSingle();
+    if (current.error) throw new Error(current.error.message);
+    const count = current.data?.count ?? 0;
+    return { allowed: count < DAILY_VISUALIZATION_LIMIT, limit: DAILY_VISUALIZATION_LIMIT, remaining: Math.max(0, DAILY_VISUALIZATION_LIMIT - count), developer: false as const };
+  }
   const database = (env as unknown as RuntimeEnv).DB;
   if (!database) throw new Error("AI 模特额度服务暂时不可用");
   await ensureVisualizationTable(database);
@@ -35,8 +45,20 @@ export async function checkVisualizationAllowance(visitorId: string, email?: str
   return { allowed: count < DAILY_VISUALIZATION_LIMIT, limit: DAILY_VISUALIZATION_LIMIT, remaining: Math.max(0, DAILY_VISUALIZATION_LIMIT - count), developer: false as const };
 }
 
-export async function recordSuccessfulVisualization(visitorId: string, email?: string) {
+export async function recordSuccessfulVisualization(visitorId: string, email?: string, request?: Request) {
   if (isDeveloper(email)) return { allowed: true as const, limit: null, remaining: null, developer: true as const };
+  if (usesSupabaseData()) {
+    if (!request) throw new Error("缺少登录请求信息");
+    const { client, user } = await requireUserData(request);
+    const usageDate = chinaDateKey();
+    const current = await client.from("visualization_usage").select("count").eq("user_id", user.id).eq("usage_date", usageDate).maybeSingle();
+    if (current.error) throw new Error(current.error.message);
+    const nextCount = (current.data?.count ?? 0) + 1;
+    if (nextCount > DAILY_VISUALIZATION_LIMIT) return { allowed: false as const, limit: DAILY_VISUALIZATION_LIMIT, remaining: 0, developer: false as const };
+    const saved = await client.from("visualization_usage").upsert({ user_id: user.id, usage_date: usageDate, count: nextCount, updated_at: new Date().toISOString() }, { onConflict: "user_id,usage_date" });
+    if (saved.error) throw new Error(saved.error.message);
+    return { allowed: true as const, limit: DAILY_VISUALIZATION_LIMIT, remaining: DAILY_VISUALIZATION_LIMIT - nextCount, developer: false as const };
+  }
   const database = (env as unknown as RuntimeEnv).DB;
   if (!database) throw new Error("AI 模特额度服务暂时不可用");
   await ensureVisualizationTable(database);

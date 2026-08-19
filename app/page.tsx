@@ -1025,7 +1025,6 @@ export default function Home() {
         {authView === "forgot" && <button className="auth-back-button" type="button" onClick={() => { setAuthView("login"); setAuthError(""); setAuthNotice(""); }}>返回邮箱登录</button>}
       </form>
       {(authView === "login" || authView === "register") && <><div className="auth-divider"><span>或者使用</span></div><div className="social-auth-buttons"><button onClick={() => signInWithSocial("google")} disabled={authBusy}><span className="google-mark">G</span>Google</button><button onClick={() => signInWithSocial("github")} disabled={authBusy}><span className="github-mark">●</span>GitHub</button></div></>}
-      <a className="legacy-login" href="/signin-with-chatgpt?return_to=%2F%3Fauth%3Dchatgpt">已有易搭测试数据？使用原 ChatGPT 账号迁移</a>
       <small className="auth-terms">登录即表示你同意易搭保存衣柜、偏好与穿搭反馈；照片仍由你自主上传和删除。</small>
     </section><aside className="auth-visual" aria-hidden="true"><span className="auth-visual-logo">易搭</span><div className="auth-visual-copy"><p>天气、场景、可用衣物</p><h2>今天穿什么，<br />问问你的衣柜。</h2></div><div className="auth-outfit-cards"><i /><i /><i /></div></aside></main>;
   }

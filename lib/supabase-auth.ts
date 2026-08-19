@@ -22,11 +22,16 @@ export function supabaseConfigured() {
   return Boolean(supabaseUrl && supabasePublishableKey);
 }
 
-export async function getSupabaseUser(request: Request, explicitToken?: string): Promise<SupabaseIdentity | null> {
-  if (!supabaseConfigured()) return null;
+export function getSupabaseAccessToken(request: Request) {
   const authorization = request.headers.get("authorization");
   const bearerToken = authorization?.startsWith("Bearer ") ? authorization.slice(7).trim() : null;
-  const token = explicitToken ?? bearerToken ?? cookieValue(request, sessionCookieName);
+  const token = bearerToken ?? cookieValue(request, sessionCookieName);
+  return token && token.length <= 5000 ? token : null;
+}
+
+export async function getSupabaseUser(request: Request, explicitToken?: string): Promise<SupabaseIdentity | null> {
+  if (!supabaseConfigured()) return null;
+  const token = explicitToken ?? getSupabaseAccessToken(request);
   if (!token || token.length > 5000) return null;
 
   try {

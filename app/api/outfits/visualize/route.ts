@@ -3,6 +3,7 @@ import { env } from "cloudflare:workers";
 import { getDb } from "../../../../db";
 import { garments, profiles } from "../../../../db/schema";
 import { visualizeOutfitWithSeedream } from "../../../../lib/ark";
+import { downloadUserImage, requireUserData, uploadUserImage, userImageExists, usesSupabaseData } from "../../../../lib/supabase-data";
 import { getVisitor } from "../../../../lib/visitor";
 import { checkVisualizationAllowance, recordSuccessfulVisualization } from "../../../../lib/visualization-limit";
 
@@ -24,8 +25,57 @@ async function shortHash(value: string) {
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("").slice(0, 32);
 }
 
+async function postSupabaseVisualization(request: Request) {
+  const { client, user } = await requireUserData(request);
+  const arkApiKey = process.env.ARK_API_KEY;
+  const seedreamModel = process.env.ARK_SEEDREAM_MODEL;
+  if (!arkApiKey) return Response.json({ error: "AI 模特服务尚未配置" }, { status: 503 });
+  const payload = await request.json() as { itemIds?: unknown };
+  const itemIds = Array.isArray(payload.itemIds)
+    ? [...new Set(payload.itemIds.filter((id): id is number => typeof id === "number" && Number.isInteger(id)))].slice(0, 4)
+    : [];
+  if (itemIds.length < 2) return Response.json({ error: "至少需要两件真实衣服才能生成模特" }, { status: 400 });
+
+  const profileResult = await client.from("profiles").select("*").eq("user_id", user.id).maybeSingle();
+  if (profileResult.error) throw new Error(profileResult.error.message);
+  const profile = profileResult.data;
+  if (!profile?.body_height || !profile.body_weight || !profile.body_shape || !profile.model_presentation) return Response.json({ error: "请先填写身高、体重和身材信息", needsProfile: true }, { status: 400 });
+  const normalizedPresentation = profile.model_presentation === "男性" || profile.model_presentation === "男生" ? "男生" : "女生";
+  const selectedResult = await client.from("garments").select("*").eq("user_id", user.id).in("id", itemIds);
+  if (selectedResult.error) throw new Error(selectedResult.error.message);
+  const selected = selectedResult.data ?? [];
+  if (selected.length !== itemIds.length || selected.some((item) => item.is_virtual || !(item.processed_image_key || item.image_key))) return Response.json({ error: "AI 模特只能使用你真实上传的衣服" }, { status: 400 });
+  const ordered = itemIds.map((id) => selected.find((item) => Number(item.id) === id)!);
+  const cacheHash = await shortHash(JSON.stringify({ visualizerVersion: 4, itemIds: [...itemIds].sort((a, b) => a - b), height: profile.body_height, weight: profile.body_weight, shape: profile.body_shape, presentation: normalizedPresentation, personReference: profile.full_body_image_key ?? null }));
+  const outputKey = `${user.id}/looks/${cacheHash}.png`;
+  if (await userImageExists(client, outputKey)) return Response.json({ imageUrl: `/api/garments/image?key=${encodeURIComponent(outputKey)}`, cached: true });
+
+  const allowance = await checkVisualizationAllowance(user.id, user.email, request);
+  if (!allowance.allowed) return Response.json({ error: "今天已成功生成 10 套 AI 试穿，请明天再试", remaining: 0 }, { status: 429 });
+  const imageDataUrls = await Promise.all(ordered.map(async (item) => {
+    const object = await downloadUserImage(client, item.processed_image_key ?? item.image_key);
+    if (!object) throw new Error(`没有找到“${item.name}”的图片`);
+    return toDataUrl(new Uint8Array(await object.arrayBuffer()), object.type || "image/jpeg");
+  }));
+  let personReferenceDataUrl: string | undefined;
+  if (profile.full_body_image_key?.startsWith(`${user.id}/`)) {
+    const reference = await downloadUserImage(client, profile.full_body_image_key);
+    if (reference) personReferenceDataUrl = toDataUrl(new Uint8Array(await reference.arrayBuffer()), reference.type || "image/jpeg");
+  }
+  const output = await visualizeOutfitWithSeedream(imageDataUrls, ordered.map((item) => item.name), {
+    height: profile.body_height,
+    weight: profile.body_weight,
+    bodyShape: profile.body_shape,
+    presentation: normalizedPresentation,
+  }, arkApiKey, seedreamModel, personReferenceDataUrl);
+  await uploadUserImage(client, outputKey, output, "image/png");
+  const usage = await recordSuccessfulVisualization(user.id, user.email, request);
+  return Response.json({ imageUrl: `/api/garments/image?key=${encodeURIComponent(outputKey)}`, remaining: usage.remaining, developer: usage.developer });
+}
+
 export async function POST(request: Request) {
   try {
+    if (usesSupabaseData()) return await postSupabaseVisualization(request);
     const visitor = await getVisitor(request);
     const runtime = env as unknown as RuntimeEnv;
     if (!runtime.ARK_API_KEY) return Response.json({ error: "AI 模特服务尚未配置" }, { status: 503 });
@@ -53,7 +103,7 @@ export async function POST(request: Request) {
       return Response.json({ imageUrl: `/api/garments/image?key=${encodeURIComponent(outputKey)}`, cached: true });
     }
 
-    const allowance = await checkVisualizationAllowance(visitor.id, visitor.email);
+    const allowance = await checkVisualizationAllowance(visitor.id, visitor.email, request);
     if (!allowance.allowed) return Response.json({ error: "今天已成功生成 10 套 AI 试穿，请明天再试", remaining: 0 }, { status: 429 });
     const imageDataUrls = await Promise.all(ordered.map(async (item) => {
       const object = await runtime.GARMENT_IMAGES!.get(item.processedImageKey ?? item.imageKey!);
@@ -75,7 +125,7 @@ export async function POST(request: Request) {
       httpMetadata: { contentType: "image/png", cacheControl: "private, max-age=3600" },
       customMetadata: { userId: visitor.id, sourceIds: itemIds.join(","), mode: personReferenceDataUrl ? "person" : "mannequin", model: runtime.ARK_SEEDREAM_MODEL ?? "doubao-seedream-5-0-260128" },
     });
-    const usage = await recordSuccessfulVisualization(visitor.id, visitor.email);
+    const usage = await recordSuccessfulVisualization(visitor.id, visitor.email, request);
     return Response.json({ imageUrl: `/api/garments/image?key=${encodeURIComponent(outputKey)}`, remaining: usage.remaining, developer: usage.developer });
   } catch (error) {
     console.error("outfit visualization failed", error);
