@@ -172,7 +172,6 @@ async function ensureUser(userId: string, displayName: string) {
     // D1 limits the number of bound parameters in one statement. Inserting all
     // catalog garments at once exceeds that limit as garment metadata grows.
     for (const item of seed) await db.insert(garments).values(item).onConflictDoNothing();
-    await db.update(garments).set({ dirtyUntil: new Date(Date.now() + 3 * 86400000).toISOString() }).where(and(eq(garments.userId, userId), eq(garments.catalogKey, "pink-skirt")));
   }
 }
 
@@ -199,14 +198,18 @@ async function stateFor(userId: string) {
       modelPresentation: profile?.modelPresentation ?? null,
       fullBodyImageUrl: profile?.fullBodyImageKey ? `/api/garments/image?key=${encodeURIComponent(profile.fullBodyImageKey)}` : null,
     },
-    garments: clothing.map((item) => ({
-      ...item,
-      image: item.processedImageKey || item.imageKey ? `/api/garments/image?key=${encodeURIComponent(item.processedImageKey ?? item.imageKey ?? "")}` : undefined,
-      dirty: Boolean(item.dirtyUntil && item.dirtyUntil > now),
-      styleTags: parseList(item.styleTags),
-      sceneTags: parseList(item.sceneTags),
-      weatherTags: parseList(item.weatherTags),
-    })),
+    garments: clothing.map((item) => {
+      const catalogItem = item.isVirtual && item.catalogKey ? virtualCatalog.find((entry) => entry.key === item.catalogKey) : null;
+      return {
+        ...item,
+        ...(catalogItem ?? {}),
+        image: item.processedImageKey || item.imageKey ? `/api/garments/image?key=${encodeURIComponent(item.processedImageKey ?? item.imageKey ?? "")}` : catalogItem?.image,
+        dirty: Boolean(item.dirtyUntil && item.dirtyUntil > now),
+        styleTags: catalogItem?.styleTags ?? parseList(item.styleTags),
+        sceneTags: catalogItem?.sceneTags ?? parseList(item.sceneTags),
+        weatherTags: catalogItem?.weatherTags ?? parseList(item.weatherTags),
+      };
+    }),
     feedback: actions,
     chat: { activeRequest: chatSession?.activeRequest ?? null, constraints: JSON.parse(chatSession?.constraints ?? "{}") as RequestConstraints, messages },
     catalog: virtualCatalog,

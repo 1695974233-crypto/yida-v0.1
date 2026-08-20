@@ -147,7 +147,7 @@ const relatedScenes: Record<string, string[]> = {
 
 const initialGarments: Garment[] = defaultCatalogKeys.map((key, index) => {
   const item = virtualCatalog.find((entry) => entry.key === key)!;
-  return { id: index + 1, catalogKey: key, ...item, isVirtual: true, dirty: key === "pink-skirt" };
+  return { id: index + 1, catalogKey: key, ...item, isVirtual: true, dirty: false };
 });
 
 function buildOutfits(garments: Garment[], scene: string | null, styles: string[], constraints: RequestConstraints, weather: WeatherData | null): Outfit[] {
@@ -345,7 +345,7 @@ async function prepareUploadImage(file: File) {
 
 function GarmentArt({ garment, compact = false }: { garment: Garment; compact?: boolean }) {
   if (garment.image) {
-    return <img className="garment-photo" src={garment.image} alt={garment.name} />;
+    return <img className={`garment-photo${garment.isVirtual ? " demo-garment-photo" : ""}${compact ? " compact" : ""}`} src={garment.image} alt={garment.name} />;
   }
   return (
     <div className={`garment-art ${compact ? "compact" : ""}`} style={{ background: garment.color }} aria-hidden="true">
@@ -950,7 +950,7 @@ export default function Home() {
   async function toggleCatalogItem(catalogKey: string) {
     const exists = garments.some((item) => item.catalogKey === catalogKey);
     const ok = await persist({ action: exists ? "remove_catalog" : "add_catalog", catalogKey });
-    if (ok) showToast(exists ? "已从虚拟衣柜移除" : "已加入你的虚拟衣柜");
+    if (ok) showToast(exists ? "已从示范衣柜移除" : "已加入你的示范衣柜");
   }
 
   async function recordFeedback(outfitKey: string, feedbackAction: "like" | "save" | "dislike" | "worn") {
@@ -1130,7 +1130,7 @@ export default function Home() {
               <h1>衣服很多，<br />今天穿什么？</h1>
               <p className="lead">易搭会结合天气、可用衣服和你的偏好，从现有衣柜里直接选出今天能穿的搭配。</p>
               <button className="primary-button" onClick={() => setOnboardingStep(1)}>开始认识你 <span>→</span></button>
-              <button className="text-button" onClick={completeOnboarding}>跳过，直接使用虚拟衣柜</button>
+              <button className="text-button" onClick={completeOnboarding}>跳过，直接使用示范衣柜</button>
             </section>
           )}
           {onboardingStep === 1 && (
@@ -1225,7 +1225,7 @@ export default function Home() {
           </div>
 
           <div className="recommendation-heading">
-            <div><p className="eyebrow">{hasRealGarments ? "仅使用你的真实衣柜" : scene ? `已加入“${scene}”场景` : "虚拟衣柜体验模式"}</p><h2>今天为你搭好了</h2></div>
+            <div><p className="eyebrow">{hasRealGarments ? "仅使用你的真实衣柜" : scene ? `已加入“${scene}”场景` : "固定示范衣柜体验"}</p><h2>今天为你搭好了</h2></div>
             <button className="refresh-button" onClick={() => {
               if (eligibleOutfits.length <= 3) {
                 showToast(`当前还剩 ${eligibleOutfits.length} 组未排除的有效搭配，多上传不同类别的衣服会更丰富`);
@@ -1269,7 +1269,7 @@ export default function Home() {
                   </div>
                 </article>
               );
-            }) : <div className="empty-state recommendation-empty"><span>▦</span><h3>{generatedOutfits.length ? "当前有效搭配已经看完了" : hasRealGarments ? "真实衣柜还缺少可搭配的衣服" : "还缺少搭配需要的衣服"}</h3><p>{generatedOutfits.length ? "你点过“不适合我”的组合不会再次出现。上传不同类别的衣服后，会产生新的搭配。" : "需要“上衣＋下装”或连衣裙，再搭配一双鞋。"}</p><button className="upload-button" onClick={hasRealGarments ? openAddGarment : () => setCatalogOpen(true)}>{hasRealGarments ? "继续上传真实衣服" : "从虚拟衣柜添加"}</button></div>}
+            }) : <div className="empty-state recommendation-empty"><span>▦</span><h3>{generatedOutfits.length ? "当前有效搭配已经看完了" : hasRealGarments ? "真实衣柜还缺少可搭配的衣服" : "还缺少搭配需要的衣服"}</h3><p>{generatedOutfits.length ? "你点过“不适合我”的组合不会再次出现。上传不同类别的衣服后，会产生新的搭配。" : "需要“上衣＋下装”或连衣裙，再搭配一双鞋。"}</p><button className="upload-button" onClick={hasRealGarments ? openAddGarment : () => setCatalogOpen(true)}>{hasRealGarments ? "继续上传真实衣服" : "从示范衣柜添加"}</button></div>}
           </div>
         </section>
       )}
@@ -1277,7 +1277,7 @@ export default function Home() {
       {tab === "wardrobe" && (
         <section className="screen wardrobe-screen">
           <div className="page-title-row"><div><p className="eyebrow">你的数字衣橱</p><h1>我的衣柜</h1><p>{availableCount} 件可用 · {garments.length - availableCount} 件在脏衣篓</p></div><button className="upload-button" onClick={openAddGarment}>＋ 添加衣服</button></div>
-          {hasRealGarments ? <div className="real-wardrobe-notice"><span>✓</span><div><strong>已切换为真实衣柜</strong><small>虚拟单品已隐藏，不会再参与搭配推荐</small></div></div> : <button className="virtual-closet-entry" onClick={() => setCatalogOpen(true)}><span>▦</span><div><strong>从虚拟衣柜添加基础款</strong><small>首次体验使用；上传真实衣服后自动关闭</small></div><b>›</b></button>}
+          {hasRealGarments ? <div className="real-wardrobe-notice"><span>✓</span><div><strong>已切换为你的真实衣柜</strong><small>固定示范衣服已隐藏，不会参与你的私人推荐</small></div></div> : <button className="virtual-closet-entry" onClick={() => setCatalogOpen(true)}><span>▦</span><div><strong>查看固定示范衣柜</strong><small>使用真实衣服照片；上传自己的衣服后自动关闭</small></div><b>›</b></button>}
           <div className="wardrobe-summary">
             <div><span className="summary-icon">✦</span><div><strong>本周穿到 7 件</strong><small>比上周多激活 2 件旧衣服</small></div></div><span className="progress-ring">68%</span>
           </div>
@@ -1401,7 +1401,7 @@ export default function Home() {
         <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setCatalogOpen(false); }}>
           <div className="upload-modal catalog-modal" role="dialog" aria-modal="true" aria-labelledby="catalog-title">
             <div className="modal-handle" />
-            <div className="modal-heading"><div><p className="eyebrow">降低第一次使用门槛</p><h2 id="catalog-title">我有这些基础款</h2><p>选择相似单品，它们会马上参与今日推荐。</p></div><button onClick={() => setCatalogOpen(false)} aria-label="关闭">×</button></div>
+            <div className="modal-heading"><div><p className="eyebrow">固定示范衣柜</p><h2 id="catalog-title">用真实衣服体验搭配</h2><p>这些是固定示范衣物，可自由添加或移除；上传自己的衣服后将不再参与推荐。</p></div><button onClick={() => setCatalogOpen(false)} aria-label="关闭">×</button></div>
             <div className="catalog-grid">
               {virtualCatalog.map((item, index) => {
                 const selected = garments.some((garment) => garment.catalogKey === item.key);

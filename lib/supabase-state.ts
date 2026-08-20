@@ -72,25 +72,25 @@ async function ensureUser(client: SupabaseClient, userId: string, displayName: s
     const rows = defaultCatalogKeys.map((key) => catalogRow(userId, key)).filter(Boolean);
     const seeded = await client.from("garments").insert(rows);
     fail(seeded.error, "体验衣柜初始化失败");
-    await client.from("garments").update({ dirty_until: new Date(Date.now() + 3 * 86400000).toISOString() }).eq("user_id", userId).eq("catalog_key", "pink-skirt");
   }
 }
 
 function mapGarment(item: Record<string, unknown>) {
   const imageKey = (item.processed_image_key || item.image_key) as string | null;
+  const catalogItem = item.is_virtual && typeof item.catalog_key === "string" ? virtualCatalog.find((entry) => entry.key === item.catalog_key) : null;
   return {
     id: Number(item.id),
     userId: item.user_id,
     catalogKey: item.catalog_key,
-    name: item.name,
-    category: item.category,
-    color: item.color,
-    colorName: item.color_name,
-    meta: item.meta,
-    warmth: item.warmth,
-    styleTags: Array.isArray(item.style_tags) ? item.style_tags : [],
-    sceneTags: Array.isArray(item.scene_tags) ? item.scene_tags : [],
-    weatherTags: Array.isArray(item.weather_tags) ? item.weather_tags : [],
+    name: catalogItem?.name ?? item.name,
+    category: catalogItem?.category ?? item.category,
+    color: catalogItem?.color ?? item.color,
+    colorName: catalogItem?.colorName ?? item.color_name,
+    meta: catalogItem?.meta ?? item.meta,
+    warmth: catalogItem?.warmth ?? item.warmth,
+    styleTags: catalogItem?.styleTags ?? (Array.isArray(item.style_tags) ? item.style_tags : []),
+    sceneTags: catalogItem?.sceneTags ?? (Array.isArray(item.scene_tags) ? item.scene_tags : []),
+    weatherTags: catalogItem?.weatherTags ?? (Array.isArray(item.weather_tags) ? item.weather_tags : []),
     isVirtual: Boolean(item.is_virtual),
     imageKey: item.image_key,
     processedImageKey: item.processed_image_key,
@@ -100,7 +100,7 @@ function mapGarment(item: Record<string, unknown>) {
     recognizedAt: item.recognized_at,
     dirtyUntil: item.dirty_until,
     createdAt: item.created_at,
-    image: imageKey ? `/api/garments/image?key=${encodeURIComponent(imageKey)}` : undefined,
+    image: imageKey ? `/api/garments/image?key=${encodeURIComponent(imageKey)}` : catalogItem?.image,
     dirty: Boolean(item.dirty_until && String(item.dirty_until) > new Date().toISOString()),
   };
 }
