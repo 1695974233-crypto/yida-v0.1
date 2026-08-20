@@ -575,7 +575,7 @@ export default function Home() {
         const message = error.code === error.PERMISSION_DENIED
           ? "定位权限被拒绝。请在浏览器地址栏左侧的网站设置中，把“位置”改为“允许”，然后刷新页面。"
           : error.code === error.POSITION_UNAVAILABLE
-            ? "设备暂时无法确定位置。请确认 macOS“系统设置 → 隐私与安全性 → 定位服务”已允许 Chrome 使用定位。"
+            ? "设备暂时无法确定位置。请在手机或电脑的系统设置中，允许当前浏览器使用定位，然后刷新页面重试。"
             : error.code === error.TIMEOUT
               ? "定位请求超时。请检查网络后重试，或先手动输入城市。"
               : "暂时无法获得位置，请检查浏览器与系统定位权限。";
@@ -602,7 +602,9 @@ export default function Home() {
     try {
       const response = await fetch("/api/state", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(action) });
       if (!response.ok) throw new Error("保存失败");
-      const data = await response.json() as { profile: ProfileData; garments: Garment[]; feedback: FeedbackRecord[]; chat: { activeRequest: string | null; constraints: RequestConstraints; messages: ChatMessage[] } };
+      const result = await response.json() as { ok?: boolean } | { profile: ProfileData; garments: Garment[]; feedback: FeedbackRecord[]; chat: { activeRequest: string | null; constraints: RequestConstraints; messages: ChatMessage[] } };
+      if ("ok" in result && result.ok) return true;
+      const data = result as { profile: ProfileData; garments: Garment[]; feedback: FeedbackRecord[]; chat: { activeRequest: string | null; constraints: RequestConstraints; messages: ChatMessage[] } };
       setGarments(data.garments);
       setStyles(data.profile.preferredStyles);
       setScene(data.profile.lastScene);

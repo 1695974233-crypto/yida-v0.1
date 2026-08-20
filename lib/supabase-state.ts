@@ -156,9 +156,31 @@ export async function getSupabaseState(request: Request) {
 
 export async function postSupabaseState(request: Request) {
   const { client, user } = await requireUserData(request);
-  await ensureUser(client, user.id, user.name);
   const payload = await request.json() as Record<string, unknown>;
   const userId = user.id;
+
+  // Profile-only saves should not initialize and then reload the entire user
+  // state. A single update is noticeably faster on mobile networks far away
+  // from the database region.
+  if (payload.action === "update_location") {
+    const latitude = typeof payload.latitude === "number" && Number.isFinite(payload.latitude) ? Math.round(payload.latitude * 100) / 100 : null;
+    const longitude = typeof payload.longitude === "number" && Number.isFinite(payload.longitude) ? Math.round(payload.longitude * 100) / 100 : null;
+    if (latitude === null || longitude === null || latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) return Response.json({ error: "位置数据无效" }, { status: 400 });
+    fail((await client.from("profiles").update({ weather_city: typeof payload.city === "string" ? payload.city.slice(0, 40) : "当前位置", weather_latitude: latitude, weather_longitude: longitude, updated_at: new Date().toISOString() }).eq("user_id", userId)).error, "位置保存失败");
+    return Response.json({ ok: true });
+  }
+  if (payload.action === "update_styles" && Array.isArray(payload.styles)) {
+    fail((await client.from("profiles").update({ preferred_styles: payload.styles, updated_at: new Date().toISOString() }).eq("user_id", userId)).error, "偏好保存失败");
+    return Response.json({ ok: true });
+  }
+  if (payload.action === "complete_onboarding") {
+    const updates: Record<string, unknown> = { onboarding_completed: true, updated_at: new Date().toISOString() };
+    if (Array.isArray(payload.styles)) updates.preferred_styles = payload.styles;
+    fail((await client.from("profiles").update(updates).eq("user_id", userId)).error, "新手引导保存失败");
+    return Response.json({ ok: true });
+  }
+
+  await ensureUser(client, user.id, user.name);
 
   if (payload.action === "delete_garment" && typeof payload.garmentId === "number") {
     const current = await client.from("garments").select("id,image_key,processed_image_key").eq("id", payload.garmentId).eq("user_id", userId).maybeSingle();
