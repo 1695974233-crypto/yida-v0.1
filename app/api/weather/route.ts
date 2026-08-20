@@ -1,5 +1,7 @@
 export const dynamic = "force-dynamic";
 
+import { resolveKnownWeatherCity } from "../../../lib/weather-cities";
+
 type GeocodingResponse = {
   results?: Array<{ name: string; latitude: number; longitude: number; admin1?: string; country?: string }>;
 };
@@ -43,18 +45,25 @@ export async function GET(request: Request) {
     let city = search.get("name")?.trim().slice(0, 40) || "当前位置";
 
     if (cityQuery) {
-      const geoUrl = new URL("https://geocoding-api.open-meteo.com/v1/search");
-      geoUrl.searchParams.set("name", cityQuery);
-      geoUrl.searchParams.set("count", "1");
-      geoUrl.searchParams.set("language", "zh");
-      geoUrl.searchParams.set("format", "json");
-      const geoResponse = await fetch(geoUrl, { signal: AbortSignal.timeout(10_000) });
-      if (!geoResponse.ok) throw new Error("城市查询暂时不可用");
-      const match = (await geoResponse.json() as GeocodingResponse).results?.[0];
-      if (!match) return Response.json({ error: "没有找到这个城市，请换一个名称" }, { status: 404 });
-      latitude = match.latitude;
-      longitude = match.longitude;
-      city = [match.name, match.admin1].filter(Boolean).join(" · ");
+      const knownCity = resolveKnownWeatherCity(cityQuery);
+      if (knownCity) {
+        latitude = knownCity.latitude;
+        longitude = knownCity.longitude;
+        city = knownCity.name;
+      } else {
+        const geoUrl = new URL("https://geocoding-api.open-meteo.com/v1/search");
+        geoUrl.searchParams.set("name", cityQuery);
+        geoUrl.searchParams.set("count", "1");
+        geoUrl.searchParams.set("language", "zh");
+        geoUrl.searchParams.set("format", "json");
+        const geoResponse = await fetch(geoUrl, { signal: AbortSignal.timeout(10_000) });
+        if (!geoResponse.ok) throw new Error("城市查询暂时不可用");
+        const match = (await geoResponse.json() as GeocodingResponse).results?.[0];
+        if (!match) return Response.json({ error: "没有找到这个城市，请换一个名称" }, { status: 404 });
+        latitude = match.latitude;
+        longitude = match.longitude;
+        city = [match.name, match.admin1].filter(Boolean).join(" · ");
+      }
     }
 
     if (latitude === null || longitude === null) {

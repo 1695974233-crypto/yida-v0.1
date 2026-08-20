@@ -3,6 +3,7 @@
 import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
 import { selectEligibleOutfits } from "../lib/outfit-selection";
+import { resolveKnownWeatherCity } from "../lib/weather-cities";
 import { defaultCatalogKeys, virtualCatalog } from "./catalog";
 
 type Tab = "today" | "wardrobe" | "discover" | "profile";
@@ -249,18 +250,25 @@ async function fetchWeatherDirectly(location: WeatherLocation): Promise<WeatherD
   let city = location.name?.trim() || "当前位置";
 
   if (location.city) {
-    const geoUrl = new URL("https://geocoding-api.open-meteo.com/v1/search");
-    geoUrl.searchParams.set("name", location.city.trim().slice(0, 40));
-    geoUrl.searchParams.set("count", "1");
-    geoUrl.searchParams.set("language", "zh");
-    geoUrl.searchParams.set("format", "json");
-    const geoResponse = await fetch(geoUrl, { signal: AbortSignal.timeout(10_000) });
-    if (!geoResponse.ok) throw new Error("城市查询暂时不可用");
-    const match = ((await geoResponse.json()) as WeatherGeocodingResponse).results?.[0];
-    if (!match) throw new Error("没有找到这个城市，请换一个名称");
-    latitude = match.latitude;
-    longitude = match.longitude;
-    city = [match.name, match.admin1].filter(Boolean).join(" · ");
+    const knownCity = resolveKnownWeatherCity(location.city);
+    if (knownCity) {
+      latitude = knownCity.latitude;
+      longitude = knownCity.longitude;
+      city = knownCity.name;
+    } else {
+      const geoUrl = new URL("https://geocoding-api.open-meteo.com/v1/search");
+      geoUrl.searchParams.set("name", location.city.trim().slice(0, 40));
+      geoUrl.searchParams.set("count", "1");
+      geoUrl.searchParams.set("language", "zh");
+      geoUrl.searchParams.set("format", "json");
+      const geoResponse = await fetch(geoUrl, { signal: AbortSignal.timeout(10_000) });
+      if (!geoResponse.ok) throw new Error("城市查询暂时不可用");
+      const match = ((await geoResponse.json()) as WeatherGeocodingResponse).results?.[0];
+      if (!match) throw new Error("没有找到这个城市，请换一个名称");
+      latitude = match.latitude;
+      longitude = match.longitude;
+      city = [match.name, match.admin1].filter(Boolean).join(" · ");
+    }
   }
 
   if (typeof latitude !== "number" || typeof longitude !== "number") throw new Error("请提供当前位置或城市名称");
@@ -299,15 +307,21 @@ async function fetchWeatherData(location: WeatherLocation) {
   if (typeof location.latitude === "number") query.set("latitude", String(location.latitude));
   if (typeof location.longitude === "number") query.set("longitude", String(location.longitude));
   if (location.name) query.set("name", location.name);
-  try {
+  const serverRequest = async () => {
     const response = await fetch(`/api/weather?${query.toString()}`, { cache: "no-store" });
     const data = await response.json() as WeatherData & { error?: string };
     if (response.ok && !data.error) return data;
-    if (response.status < 500) throw new Error(data.error ?? "天气获取失败");
+    throw new Error(data.error ?? "天气获取失败");
+  };
+  try {
+    return await Promise.any([serverRequest(), fetchWeatherDirectly(location)]);
   } catch (error) {
-    if (error instanceof Error && (error.message.includes("没有找到") || error.message.includes("请提供"))) throw error;
+    if (error instanceof AggregateError) {
+      const useful = error.errors.find((item) => item instanceof Error && (item.message.includes("没有找到") || item.message.includes("请提供")));
+      if (useful instanceof Error) throw useful;
+    }
+    throw new Error("天气服务暂时不可用，请稍后重试");
   }
-  return fetchWeatherDirectly(location);
 }
 
 async function prepareUploadImage(file: File) {
@@ -544,13 +558,14 @@ export default function Home() {
   async function loadWeather(location: WeatherLocation, saveLocation = true) {
     setWeatherLoading(true);
     setLocationError("");
+    setWeatherOpen(false);
+    showToast("位置已提交，天气正在更新");
     try {
       const data = await fetchWeatherData(location);
       setWeather(data);
       setWeatherCityInput(data.city.split(" · ")[0]);
       setRotation(0);
-      if (saveLocation) await persist({ action: "update_location", city: data.city, latitude: data.latitude, longitude: data.longitude }, true);
-      setWeatherOpen(false);
+      if (saveLocation) void persist({ action: "update_location", city: data.city, latitude: data.latitude, longitude: data.longitude }, true, true);
       showToast(`已更新 ${data.city} 的真实天气`);
     } catch (error) {
       showToast(error instanceof Error ? error.message : "天气获取失败，请稍后重试");
@@ -597,8 +612,8 @@ export default function Home() {
     setStyles((current) => current.includes(value) ? current.filter((item) => item !== value) : [...current, value]);
   }
 
-  async function persist(action: Record<string, unknown>, quiet = false) {
-    setSaving(true);
+  async function persist(action: Record<string, unknown>, quiet = false, background = false) {
+    if (!background) setSaving(true);
     try {
       const response = await fetch("/api/state", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(action) });
       if (!response.ok) throw new Error("保存失败");
@@ -624,7 +639,9 @@ export default function Home() {
     } catch {
       if (!quiet) showToast("没有保存成功，请稍后重试");
       return false;
-    } finally { setSaving(false); }
+    } finally {
+      if (!background) setSaving(false);
+    }
   }
 
   async function completeOnboarding() {
