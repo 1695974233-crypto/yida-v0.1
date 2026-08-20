@@ -9,7 +9,7 @@ import { checkVisualizationAllowance, recordSuccessfulVisualization } from "../.
 
 export const dynamic = "force-dynamic";
 
-type RuntimeEnv = { GARMENT_IMAGES?: R2Bucket; ARK_API_KEY?: string; ARK_SEEDREAM_MODEL?: string };
+type RuntimeEnv = { GARMENT_IMAGES?: R2Bucket; ARK_API_KEY?: string; ARK_SEEDREAM_MODEL?: string; ARK_VISION_MODEL?: string };
 
 function toDataUrl(bytes: Uint8Array, type: string) {
   let binary = "";
@@ -46,7 +46,7 @@ async function postSupabaseVisualization(request: Request) {
   const selected = selectedResult.data ?? [];
   if (selected.length !== itemIds.length || selected.some((item) => item.is_virtual || !(item.processed_image_key || item.image_key))) return Response.json({ error: "AI 模特只能使用你真实上传的衣服" }, { status: 400 });
   const ordered = itemIds.map((id) => selected.find((item) => Number(item.id) === id)!);
-  const cacheHash = await shortHash(JSON.stringify({ visualizerVersion: 4, itemIds: [...itemIds].sort((a, b) => a - b), height: profile.body_height, weight: profile.body_weight, shape: profile.body_shape, presentation: normalizedPresentation, personReference: profile.full_body_image_key ?? null }));
+  const cacheHash = await shortHash(JSON.stringify({ visualizerVersion: 7, framing: "portrait-wide-full-body", qualityGate: "full-body-v2", itemIds: [...itemIds].sort((a, b) => a - b), height: profile.body_height, weight: profile.body_weight, shape: profile.body_shape, presentation: normalizedPresentation, personReference: profile.full_body_image_key ?? null }));
   const outputKey = `${user.id}/looks/${cacheHash}.png`;
   if (await userImageExists(client, outputKey)) return Response.json({ imageUrl: `/api/garments/image?key=${encodeURIComponent(outputKey)}`, cached: true });
 
@@ -67,7 +67,7 @@ async function postSupabaseVisualization(request: Request) {
     weight: profile.body_weight,
     bodyShape: profile.body_shape,
     presentation: normalizedPresentation,
-  }, arkApiKey, seedreamModel, personReferenceDataUrl);
+  }, arkApiKey, seedreamModel, personReferenceDataUrl, process.env.ARK_VISION_MODEL);
   await uploadUserImage(client, outputKey, output, "image/png");
   const usage = await recordSuccessfulVisualization(user.id, user.email, request);
   return Response.json({ imageUrl: `/api/garments/image?key=${encodeURIComponent(outputKey)}`, remaining: usage.remaining, developer: usage.developer });
@@ -97,7 +97,7 @@ export async function POST(request: Request) {
       return Response.json({ error: "AI 模特只能使用你真实上传的衣服" }, { status: 400 });
     }
     const ordered = itemIds.map((id) => selected.find((item) => item.id === id)!);
-    const cacheHash = await shortHash(JSON.stringify({ visualizerVersion: 3, itemIds: [...itemIds].sort((a, b) => a - b), height: profile.bodyHeight, weight: profile.bodyWeight, shape: profile.bodyShape, presentation: normalizedPresentation, personReference: profile.fullBodyImageKey ?? null }));
+    const cacheHash = await shortHash(JSON.stringify({ visualizerVersion: 6, framing: "portrait-wide-full-body", qualityGate: "full-body-v2", itemIds: [...itemIds].sort((a, b) => a - b), height: profile.bodyHeight, weight: profile.bodyWeight, shape: profile.bodyShape, presentation: normalizedPresentation, personReference: profile.fullBodyImageKey ?? null }));
     const outputKey = `${visitor.id}/looks/${cacheHash}.png`;
     if (await runtime.GARMENT_IMAGES.head(outputKey)) {
       return Response.json({ imageUrl: `/api/garments/image?key=${encodeURIComponent(outputKey)}`, cached: true });
@@ -120,7 +120,7 @@ export async function POST(request: Request) {
       weight: profile.bodyWeight,
       bodyShape: profile.bodyShape,
       presentation: normalizedPresentation,
-    }, runtime.ARK_API_KEY, runtime.ARK_SEEDREAM_MODEL, personReferenceDataUrl);
+    }, runtime.ARK_API_KEY, runtime.ARK_SEEDREAM_MODEL, personReferenceDataUrl, runtime.ARK_VISION_MODEL);
     await runtime.GARMENT_IMAGES.put(outputKey, output, {
       httpMetadata: { contentType: "image/png", cacheControl: "private, max-age=3600" },
       customMetadata: { userId: visitor.id, sourceIds: itemIds.join(","), mode: personReferenceDataUrl ? "person" : "mannequin", model: runtime.ARK_SEEDREAM_MODEL ?? "doubao-seedream-5-0-260128" },

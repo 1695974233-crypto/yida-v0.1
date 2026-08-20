@@ -58,6 +58,24 @@ vefaas deploy --appId 5a633b9cd680 \
 6. 分别验证邮箱、Google、GitHub 登录，以及衣柜、识图、天气和效果图功能。
 7. 验收通过后再把 Supabase Site URL 切换为正式域名，并决定是否下线旧站。
 
+## 图片迁移到北京 TOS
+
+图片存储已经支持与 Supabase 数据库解耦。迁移时保持
+`YIDA_DATA_BACKEND=supabase`，并设置：
+
+```text
+YIDA_IMAGE_BACKEND=tos
+YIDA_TOS_MOUNT_PATH=/mnt/yida-images
+```
+
+veFaaS 底层函数需要挂载同地域的北京 TOS 私有 Bucket，Bucket 根目录挂载到
+`/mnt/yida-images` 并授予读写权限。启用后：
+
+- 新上传的衣物照片、全身照和 AI 试穿图只写入北京 TOS；
+- 旧图片如果只存在 Supabase，会在用户首次查看时读取一次并复制到 TOS；
+- 删除图片时同时删除 TOS 与 Supabase 中可能存在的旧副本；
+- 数据库和登录继续使用 Supabase，后续再分阶段迁移。
+
 ## 必须完成的安全事项
 
 迁移排障期间，云端命令输出曾在受控开发会话中展示过现有环境变量值。正式开放给外部用户前必须轮换：

@@ -115,13 +115,19 @@ async function stateFor(client: SupabaseClient, userId: string) {
   ]);
   for (const result of [profileResult, garmentsResult, feedbackResult, chatResult, messagesResult]) fail(result.error, "用户数据读取失败");
   const profile = profileResult.data;
+  const garmentRows = garmentsResult.data ?? [];
+  const hasLegacyWardrobe = garmentRows.some((item) => item.recognition_provider === "legacy-import");
+  const onboardingCompleted = Boolean(profile?.onboarding_completed || hasLegacyWardrobe);
+  if (!profile?.onboarding_completed && hasLegacyWardrobe) {
+    fail((await client.from("profiles").update({ onboarding_completed: true, updated_at: new Date().toISOString() }).eq("user_id", userId)).error, "新手引导状态修复失败");
+  }
   const chat = chatResult.data;
   return {
     profile: {
       displayName: profile?.display_name ?? "晚晚",
       preferredStyles: profile?.preferred_styles ?? [],
       lastScene: profile?.last_scene ?? null,
-      onboardingCompleted: Boolean(profile?.onboarding_completed),
+      onboardingCompleted,
       weatherCity: profile?.weather_city ?? null,
       weatherLatitude: profile?.weather_latitude ?? null,
       weatherLongitude: profile?.weather_longitude ?? null,
@@ -131,7 +137,7 @@ async function stateFor(client: SupabaseClient, userId: string) {
       modelPresentation: profile?.model_presentation ?? null,
       fullBodyImageUrl: profile?.full_body_image_key ? `/api/garments/image?key=${encodeURIComponent(profile.full_body_image_key)}` : null,
     },
-    garments: (garmentsResult.data ?? []).map((item) => mapGarment(item)),
+    garments: garmentRows.map((item) => mapGarment(item)),
     feedback: (feedbackResult.data ?? []).map((item) => ({ id: item.id, userId: item.user_id, outfitKey: item.outfit_key, action: item.action, reason: item.reason, createdAt: item.created_at })),
     chat: {
       activeRequest: chat?.active_request ?? null,

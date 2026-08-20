@@ -2,6 +2,7 @@
 
 import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
+import { selectEligibleOutfits } from "../lib/outfit-selection";
 import { defaultCatalogKeys, virtualCatalog } from "./catalog";
 
 type Tab = "today" | "wardrobe" | "discover" | "profile";
@@ -51,6 +52,10 @@ type GarmentDraft = {
   confidence: number;
   warnings: string[];
 };
+
+function onboardingStorageKey(userId: string) {
+  return `yida_onboarding_completed:${userId}`;
+}
 
 type InspirationLook = {
   key: string;
@@ -350,7 +355,8 @@ export default function Home() {
   const [authBusy, setAuthBusy] = useState(false);
   const [authError, setAuthError] = useState("");
   const [authNotice, setAuthNotice] = useState("");
-  const [onboarding, setOnboarding] = useState(true);
+  const [legacyImporting, setLegacyImporting] = useState(false);
+  const [onboarding, setOnboarding] = useState(false);
   const [onboardingStep, setOnboardingStep] = useState(0);
   const [tab, setTab] = useState<Tab>("today");
   const [scene, setScene] = useState<string | null>(null);
@@ -413,11 +419,12 @@ export default function Home() {
     [recommendationGarments, wardrobeFilter],
   );
   const generatedOutfits = useMemo(() => buildOutfits(recommendationGarments, scene, styles, requestConstraints, weather), [recommendationGarments, scene, styles, requestConstraints, weather]);
-  const outfits = useMemo(() => {
-    if (!generatedOutfits.length) return [];
-    const pageSize = Math.min(3, generatedOutfits.length);
-    return Array.from({ length: pageSize }, (_, index) => generatedOutfits[(rotation + index) % generatedOutfits.length]);
-  }, [generatedOutfits, rotation]);
+  const outfitSelection = useMemo(
+    () => selectEligibleOutfits(generatedOutfits, disliked, rotation),
+    [disliked, generatedOutfits, rotation],
+  );
+  const eligibleOutfits = outfitSelection.eligible;
+  const outfits = outfitSelection.visible;
   const todayLabel = new Intl.DateTimeFormat("zh-CN", { month: "long", day: "numeric", weekday: "long", timeZone: "Asia/Shanghai" }).format(new Date());
   const currentSeason = [12, 1, 2].includes(new Date().getMonth() + 1) ? "冬季" : [3, 4, 5].includes(new Date().getMonth() + 1) ? "春季" : [6, 7, 8].includes(new Date().getMonth() + 1) ? "夏季" : "秋季";
   const visibleInspirationLooks = useMemo(() => {
@@ -431,7 +438,7 @@ export default function Home() {
 
   useEffect(() => {
     let active = true;
-    async function useSupabaseSession(accessToken: string) {
+    async function establishSupabaseSession(accessToken: string) {
       const response = await fetch("/api/auth/session", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -450,7 +457,7 @@ export default function Home() {
             if (active) setAccount(null);
             return;
           }
-          await useSupabaseSession(data.session.access_token);
+          await establishSupabaseSession(data.session.access_token);
           return;
         }
       }
@@ -474,7 +481,7 @@ export default function Home() {
         setAuthNotice("验证成功，请设置一个新密码。");
         if (active) setAccount(null);
       } else if (session) {
-        window.setTimeout(() => { void useSupabaseSession(session.access_token).catch(() => { if (active) setAccount(null); }); }, 0);
+        window.setTimeout(() => { void establishSupabaseSession(session.access_token).catch(() => { if (active) setAccount(null); }); }, 0);
       }
     }).data.subscription;
     return () => { active = false; subscription?.unsubscribe(); };
@@ -503,7 +510,10 @@ export default function Home() {
         setGarments(data.garments);
         setStyles(data.profile.preferredStyles.length ? data.profile.preferredStyles : ["简约通勤", "清爽休闲"]);
         setScene(data.profile.lastScene);
-        setOnboarding(!data.profile.onboardingCompleted);
+        const completedOnServer = Boolean(data.profile.onboardingCompleted);
+        const completedOnThisDevice = window.localStorage.getItem(onboardingStorageKey(account.id)) === "1";
+        if (completedOnServer) window.localStorage.setItem(onboardingStorageKey(account.id), "1");
+        setOnboarding(!completedOnServer && !completedOnThisDevice);
         setLiked(data.feedback.filter((item) => item.action === "like").map((item) => item.outfitKey));
         setSaved(data.feedback.filter((item) => item.action === "save").map((item) => item.outfitKey));
         setDisliked(data.feedback.filter((item) => item.action === "dislike").map((item) => item.outfitKey));
@@ -617,8 +627,40 @@ export default function Home() {
 
   async function completeOnboarding() {
     const ok = await persist({ action: "complete_onboarding", styles });
-    setOnboarding(false);
-    if (!ok) showToast("已先进入体验，个人偏好将在服务恢复后保存");
+    if (ok) {
+      if (account) window.localStorage.setItem(onboardingStorageKey(account.id), "1");
+      setOnboarding(false);
+      setOnboardingStep(0);
+      return;
+    }
+    showToast("引导状态还没有保存，请检查网络后重试");
+  }
+
+  async function importLegacyWardrobe(event: ChangeEvent<HTMLInputElement>) {
+    const selected = Array.from(event.target.files ?? []);
+    event.target.value = "";
+    if (!selected.length || legacyImporting) return;
+    const manifest = selected.find((file) => file.name.toLowerCase().endsWith(".json"));
+    const images = selected.filter((file) => /^image\//.test(file.type));
+    if (!manifest || !images.length) {
+      showToast("请选择备份清单和对应衣物图片");
+      return;
+    }
+    setLegacyImporting(true);
+    try {
+      const form = new FormData();
+      form.append("manifest", manifest);
+      images.forEach((file) => form.append("images", file));
+      const response = await fetch("/api/garments/import-legacy", { method: "POST", body: form });
+      const data = await response.json() as { error?: string; imported?: number; skipped?: number };
+      if (!response.ok) throw new Error(data.error ?? "旧衣柜导入失败");
+      showToast(`已恢复 ${data.imported ?? 0} 件真实衣服${data.skipped ? `，跳过 ${data.skipped} 件重复衣服` : ""}`);
+      window.setTimeout(() => window.location.reload(), 700);
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : "旧衣柜导入失败");
+    } finally {
+      setLegacyImporting(false);
+    }
   }
 
   async function saveBodyProfile(event: FormEvent) {
@@ -893,8 +935,29 @@ export default function Home() {
   }
 
   async function recordFeedback(outfitKey: string, feedbackAction: "like" | "save" | "dislike" | "worn") {
+    const alreadyDisliked = disliked.includes(outfitKey);
+    if (feedbackAction === "dislike" && !alreadyDisliked) {
+      // Remove the card immediately; roll it back below if saving fails.
+      setDisliked((current) => current.includes(outfitKey) ? current : [...current, outfitKey]);
+      setVisualizedLooks((current) => {
+        if (!(outfitKey in current)) return current;
+        const next = { ...current };
+        delete next[outfitKey];
+        return next;
+      });
+      setVisualizationErrors((current) => {
+        if (!(outfitKey in current)) return current;
+        const next = { ...current };
+        delete next[outfitKey];
+        return next;
+      });
+    }
     const ok = await persist({ action: "feedback", outfitKey, feedbackAction });
-    if (ok) showToast(feedbackAction === "worn" ? "已记录：今天穿这套" : feedbackAction === "dislike" ? "收到，已移除这条参考并更新偏好" : "你的偏好已经保存");
+    if (!ok && feedbackAction === "dislike" && !alreadyDisliked) {
+      setDisliked((current) => current.filter((key) => key !== outfitKey));
+      return;
+    }
+    if (ok) showToast(feedbackAction === "worn" ? "已记录：今天穿这套" : feedbackAction === "dislike" ? "收到，已换成下一套并更新偏好" : "你的偏好已经保存");
   }
 
   async function sendText(rawMessage: string) {
@@ -1032,7 +1095,7 @@ export default function Home() {
   return (
     <main className="app-shell">
       {(loading || saving) && <div className="sync-indicator"><span>{loading ? "正在打开你的衣柜…" : "正在保存…"}</span></div>}
-      {onboarding && (
+      {!loading && onboarding && (
         <div className="onboarding">
           <div className="onboarding-brand"><span className="brand-mark">易</span><span>易搭</span></div>
           {onboardingStep === 0 && (
@@ -1145,11 +1208,11 @@ export default function Home() {
           <div className="recommendation-heading">
             <div><p className="eyebrow">{hasRealGarments ? "仅使用你的真实衣柜" : scene ? `已加入“${scene}”场景` : "虚拟衣柜体验模式"}</p><h2>今天为你搭好了</h2></div>
             <button className="refresh-button" onClick={() => {
-              if (generatedOutfits.length <= 3) {
-                showToast(`当前衣柜只有 ${generatedOutfits.length} 组有效搭配，多上传不同类别的衣服会更丰富`);
+              if (eligibleOutfits.length <= 3) {
+                showToast(`当前还剩 ${eligibleOutfits.length} 组未排除的有效搭配，多上传不同类别的衣服会更丰富`);
                 return;
               }
-              setRotation((current) => (current + 3) % generatedOutfits.length);
+              setRotation((current) => (current + 3) % eligibleOutfits.length);
               showToast("已换成另一组搭配");
             }}>↻ 换一组</button>
           </div>
@@ -1167,7 +1230,7 @@ export default function Home() {
                       </div>
                       <div className="model-panel effect-panel">
                         {visualizedLooks[outfit.key] ? <><button className="generated-model-button" onClick={() => setExpandedLook({ imageUrl: visualizedLooks[outfit.key], title: outfit.title, items: outfit.items, mode: fullBodyImageUrl ? "本人试穿" : `${modelPresentation}假人` })} aria-label={`放大查看“${outfit.title}”试穿效果`}><img className="generated-model" src={visualizedLooks[outfit.key]} alt={`${outfit.title} ${fullBodyImageUrl ? "真人" : "假人模特"}试穿效果`} /><span className="zoom-hint">⌕ 点击放大</span></button><span className="tryon-mode-badge">{fullBodyImageUrl ? "本人试穿" : `${modelPresentation}假人`}</span></> : <>
-                          {visualizingKey === outfit.key ? <div className="effect-status" role="status"><span className="effect-spinner">✦</span><strong>正在生成效果图</strong><small>多衣物融合通常需要一段时间<br />可以继续浏览</small></div> : <button className="effect-trigger" onClick={() => generateOutfitLook(outfit)} aria-label={`生成“${outfit.title}”的穿搭效果图`} title={visualizationErrors[outfit.key]}><span>✦</span><strong>{visualizationErrors[outfit.key] ? "重新生成" : "效果图"}</strong><small className={visualizationErrors[outfit.key] ? "effect-error" : ""}>{visualizationErrors[outfit.key] ?? (bodyHeight && bodyWeight ? "点击生成模特试穿" : "先填写身体资料")}</small></button>}
+                          {visualizingKey === outfit.key ? <div className="effect-status" role="status"><span className="effect-spinner">✦</span><strong>正在生成并质检</strong><small>系统会检查腿脚和鞋子是否完整<br />不合格将自动修复</small></div> : <button className="effect-trigger" onClick={() => generateOutfitLook(outfit)} aria-label={`生成“${outfit.title}”的穿搭效果图`} title={visualizationErrors[outfit.key]}><span>✦</span><strong>{visualizationErrors[outfit.key] ? "重新生成" : "效果图"}</strong><small className={visualizationErrors[outfit.key] ? "effect-error" : ""}>{visualizationErrors[outfit.key] ?? (bodyHeight && bodyWeight ? "点击生成模特试穿" : "先填写身体资料")}</small></button>}
                         </>}
                       </div>
                     </div> : <div className="look-canvas">
@@ -1187,7 +1250,7 @@ export default function Home() {
                   </div>
                 </article>
               );
-            }) : <div className="empty-state recommendation-empty"><span>▦</span><h3>{hasRealGarments ? "真实衣柜还缺少可搭配的衣服" : "还缺少搭配需要的衣服"}</h3><p>需要“上衣＋下装”或连衣裙，再搭配一双鞋。</p><button className="upload-button" onClick={hasRealGarments ? openAddGarment : () => setCatalogOpen(true)}>{hasRealGarments ? "继续上传真实衣服" : "从虚拟衣柜添加"}</button></div>}
+            }) : <div className="empty-state recommendation-empty"><span>▦</span><h3>{generatedOutfits.length ? "当前有效搭配已经看完了" : hasRealGarments ? "真实衣柜还缺少可搭配的衣服" : "还缺少搭配需要的衣服"}</h3><p>{generatedOutfits.length ? "你点过“不适合我”的组合不会再次出现。上传不同类别的衣服后，会产生新的搭配。" : "需要“上衣＋下装”或连衣裙，再搭配一双鞋。"}</p><button className="upload-button" onClick={hasRealGarments ? openAddGarment : () => setCatalogOpen(true)}>{hasRealGarments ? "继续上传真实衣服" : "从虚拟衣柜添加"}</button></div>}
           </div>
         </section>
       )}
@@ -1237,7 +1300,7 @@ export default function Home() {
           <div className="profile-hero"><div className="large-avatar">{account.name.slice(0, 1).toUpperCase()}</div><div><h1>{account.name.includes("@") ? "易搭用户" : account.name}</h1><p>{account.email}</p></div><button onClick={() => { setOnboarding(true); setOnboardingStep(0); }}>重新体验引导</button></div>
           <div className="stat-grid"><div><strong>{recommendationGarments.length}</strong><span>{hasRealGarments ? "真实单品" : "体验单品"}</span></div><div><strong>{saved.length}</strong><span>收藏搭配</span></div><div><strong>{worn.length + 7}</strong><span>本月已穿</span></div></div>
           <section className="profile-section"><div className="section-heading"><div><p className="eyebrow">最近 30 天</p><h2>穿搭记录</h2></div><button className="clear-button">查看全部</button></div><div className="history-list"><div><span className="history-date">今天</span><div className="mini-palette"><i style={{ background: "#b8cbd4" }} /><i style={{ background: "#595b5c" }} /><i style={{ background: "#e7ddca" }} /></div><p>雨天也清爽</p><b>已穿 ✓</b></div><div><span className="history-date">周六</span><div className="mini-palette"><i style={{ background: "#d9c8ad" }} /><i style={{ background: "#66819b" }} /></div><p>舒服不费力</p><b>已收藏</b></div></div></section>
-          <section className="settings-list"><button onClick={() => setBodyProfileOpen(true)}><span>♙</span><div><strong>AI 模特身体资料</strong><small>{bodyHeight && bodyWeight ? `${bodyHeight}cm · ${bodyWeight}kg · ${bodyShape}` : "填写身高、体重和身材特点"}</small></div><b>›</b></button><button><span>♡</span><div><strong>我的偏爱穿搭</strong><small>收藏与喜欢过的搭配</small></div><b>›</b></button><button><span>♨</span><div><strong>脏衣篓设置</strong><small>默认 3 天后恢复可用</small></div><b>›</b></button><button><span>◌</span><div><strong>个人偏好</strong><small>{styles.join("、")}</small></div><b>›</b></button><button><span>⌁</span><div><strong>隐私与数据</strong><small>定位、照片与删除设置</small></div><b>›</b></button><button className="logout-setting" onClick={signOutAccount}><span>↪</span><div><strong>退出登录</strong><small>退出当前账号并返回登录页</small></div><b>›</b></button></section>
+          <section className="settings-list"><button onClick={() => setBodyProfileOpen(true)}><span>♙</span><div><strong>AI 模特身体资料</strong><small>{bodyHeight && bodyWeight ? `${bodyHeight}cm · ${bodyWeight}kg · ${bodyShape}` : "填写身高、体重和身材特点"}</small></div><b>›</b></button><button><span>♡</span><div><strong>我的偏爱穿搭</strong><small>收藏与喜欢过的搭配</small></div><b>›</b></button><button><span>♨</span><div><strong>脏衣篓设置</strong><small>默认 3 天后恢复可用</small></div><b>›</b></button><button><span>◌</span><div><strong>个人偏好</strong><small>{styles.join("、")}</small></div><b>›</b></button><label className="legacy-import-setting"><span>⇧</span><div><strong>{legacyImporting ? "正在恢复旧衣柜…" : "导入旧衣柜备份"}</strong><small>恢复旧站真实衣物，不消耗识图次数</small></div><b>›</b><input type="file" accept="application/json,image/jpeg,image/png,image/webp" multiple disabled={legacyImporting} onChange={importLegacyWardrobe} /></label><button><span>⌁</span><div><strong>隐私与数据</strong><small>定位、照片与删除设置</small></div><b>›</b></button><button className="logout-setting" onClick={signOutAccount}><span>↪</span><div><strong>退出登录</strong><small>退出当前账号并返回登录页</small></div><b>›</b></button></section>
         </section>
       )}
 
