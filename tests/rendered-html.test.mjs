@@ -14,12 +14,20 @@ async function loadTypeScriptModule(url) {
 }
 
 test("removes disliked outfits before filling and rotating recommendations", async () => {
-  const { selectEligibleOutfits } = await loadTypeScriptModule(new URL("../lib/outfit-selection.ts", import.meta.url));
+  const { dedupeGarmentsForRecommendations, garmentRecommendationKey, selectEligibleOutfits } = await loadTypeScriptModule(new URL("../lib/outfit-selection.ts", import.meta.url));
   const generated = ["a", "b", "c", "d", "e"].map((key) => ({ key }));
 
   assert.deepEqual(selectEligibleOutfits(generated, ["b"], 0).visible.map((item) => item.key), ["a", "c", "d"]);
   assert.deepEqual(selectEligibleOutfits(generated, ["a", "b"], 1).visible.map((item) => item.key), ["d", "e", "c"]);
   assert.deepEqual(selectEligibleOutfits(generated, ["a", "b", "c", "d", "e"], 0).visible, []);
+
+  const duplicateGarments = [
+    { id: 1, category: "上衣", name: "卡通印花短袖 T 恤", colorName: "黑色" },
+    { id: 2, category: "上衣", name: "卡通印花短袖 T 恤", colorName: "黑色" },
+    { id: 3, category: "鞋子", name: "棕色休闲板鞋", colorName: "棕色" },
+  ];
+  assert.deepEqual(dedupeGarmentsForRecommendations(duplicateGarments).map((item) => item.id), [1, 3]);
+  assert.equal(garmentRecommendationKey(duplicateGarments[0]), garmentRecommendationKey(duplicateGarments[1]));
 });
 
 async function render() {
@@ -113,7 +121,7 @@ test("switches to real wardrobe photos and supports Seedream mannequin previews"
     readFile(new URL("../db/schema.ts", import.meta.url), "utf8"),
     readFile(new URL("../lib/visitor.ts", import.meta.url), "utf8"),
   ]);
-  assert.match(page, /已切换为真实衣柜/);
+  assert.match(page, /已切换为(?:你的)?真实衣柜/);
   assert.match(page, /效果图/);
   assert.match(page, /正在生成并质检/);
   assert.match(page, /multiple onChange=\{handleUpload\}/);

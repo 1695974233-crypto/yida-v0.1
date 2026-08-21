@@ -1,3 +1,24 @@
+type RecommendationGarment = {
+  catalogKey?: string | null;
+  category: string;
+  name: string;
+  colorName: string;
+};
+
+export function garmentRecommendationKey(item: RecommendationGarment) {
+  if (item.catalogKey) return `catalog:${item.catalogKey}`;
+  return [item.category, item.name.trim(), item.colorName.trim()].join(":");
+}
+
+export function dedupeGarmentsForRecommendations<T extends RecommendationGarment>(garments: T[]) {
+  const unique = new Map<string, T>();
+  for (const garment of garments) {
+    const key = garmentRecommendationKey(garment);
+    if (!unique.has(key)) unique.set(key, garment);
+  }
+  return [...unique.values()];
+}
+
 export function selectEligibleOutfits<T extends { key: string }>(
   generatedOutfits: T[],
   dislikedKeys: string[],

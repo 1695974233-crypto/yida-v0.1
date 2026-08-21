@@ -2,7 +2,7 @@
 
 import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
-import { selectEligibleOutfits } from "../lib/outfit-selection";
+import { dedupeGarmentsForRecommendations, garmentRecommendationKey, selectEligibleOutfits } from "../lib/outfit-selection";
 import { resolveKnownWeatherCity } from "../lib/weather-cities";
 import { defaultCatalogKeys, virtualCatalog } from "./catalog";
 
@@ -151,7 +151,9 @@ const initialGarments: Garment[] = defaultCatalogKeys.map((key, index) => {
 });
 
 function buildOutfits(garments: Garment[], scene: string | null, styles: string[], constraints: RequestConstraints, weather: WeatherData | null): Outfit[] {
-  const available = garments.filter((item) => !item.dirty && !(constraints.avoid ?? []).some((term) => item.name.includes(term) || item.category.includes(term)));
+  const available = dedupeGarmentsForRecommendations(
+    garments.filter((garment) => !garment.dirty && !(constraints.avoid ?? []).some((term) => garment.name.includes(term) || garment.category.includes(term))),
+  );
   const tops = available.filter((item) => item.category === "上衣");
   const bottoms = available.filter((item) => item.category === "下装");
   const dresses = available.filter((item) => item.category === "连衣裙");
@@ -187,7 +189,8 @@ function buildOutfits(garments: Garment[], scene: string | null, styles: string[
     const neutralNames = new Set(["燕麦色", "浅蓝", "奶油白", "深灰", "牛仔蓝", "黑色", "米白", "灰色", "棕色"]);
     if (pieces.filter((item) => neutralNames.has(item.colorName)).length >= 3) score += 5;
     const itemIds = pieces.map((item) => item.id);
-    const key = `${scene ?? "日常"}-${itemIds.slice().sort((a, b) => a - b).join("-")}`;
+    const combinationKey = pieces.map(garmentRecommendationKey).sort().join("|");
+    const key = `${scene ?? "日常"}-${combinationKey}`;
     candidates.push({
       key,
       title: scene === "上班" ? "轻松有分寸" : scene === "约会" ? "温柔但不刻意" : scene === "运动" ? "舒服动起来" : isRainy && outer ? "雨天也清爽" : outer ? "温差也从容" : "舒服不费力",
@@ -203,7 +206,7 @@ function buildOutfits(garments: Garment[], scene: string | null, styles: string[
   for (const dress of dresses) for (const shoe of shoes) for (const outer of [undefined, ...outers]) addCandidate([dress, shoe], outer);
   const unique = new Map<string, Outfit>();
   for (const candidate of candidates.sort((a, b) => b.score - a.score)) {
-    const combinationKey = candidate.itemIds.slice().sort((a, b) => a - b).join("-");
+    const combinationKey = candidate.key;
     if (!unique.has(combinationKey)) unique.set(combinationKey, candidate);
   }
   const pool = [...unique.values()];
