@@ -1241,20 +1241,18 @@ export default function Home() {
               const outfitGarments = outfit.itemIds.map((id) => recommendationGarments.find((item) => item.id === id)).filter((item): item is Garment => Boolean(item));
               return (
                 <article className={`outfit-card outfit-${index + 1}`} key={outfit.key}>
-                  <div className={`outfit-visual ${hasRealGarments ? "real-outfit-visual" : ""}`}>
+                  <div className="outfit-visual real-outfit-visual">
                     <div className="match-label"><span>✦</span>{outfit.score}% 匹配</div>
-                    {hasRealGarments ? <div className="real-look-layout">
-                      <div className={`real-piece-grid pieces-${Math.min(outfitGarments.length, 4)}`} aria-label={`本套真实衣物，共 ${outfitGarments.length} 件`}>
+                    <div className={`real-look-layout ${hasRealGarments ? "" : "demo-look-layout"}`}>
+                      <div className={`real-piece-grid pieces-${Math.min(outfitGarments.length, 4)}`} aria-label={`本套推荐衣物，共 ${outfitGarments.length} 件`}>
                         {outfitGarments.map((garment) => <div className="real-piece" key={garment.id}>{garment.image ? <img src={garment.image} alt={garment.name} /> : <GarmentArt garment={garment} compact />}<span>{garment.name}</span></div>)}
                       </div>
-                      <div className="model-panel effect-panel">
+                      {hasRealGarments && <div className="model-panel effect-panel">
                         {visualizedLooks[outfit.key] ? <><button className="generated-model-button" onClick={() => setExpandedLook({ imageUrl: visualizedLooks[outfit.key], title: outfit.title, items: outfit.items, mode: fullBodyImageUrl ? "本人试穿" : `${modelPresentation}假人` })} aria-label={`放大查看“${outfit.title}”试穿效果`}><img className="generated-model" src={visualizedLooks[outfit.key]} alt={`${outfit.title} ${fullBodyImageUrl ? "真人" : "假人模特"}试穿效果`} /><span className="zoom-hint">⌕ 点击放大</span></button><span className="tryon-mode-badge">{fullBodyImageUrl ? "本人试穿" : `${modelPresentation}假人`}</span></> : <>
                           {visualizingKey === outfit.key ? <div className="effect-status" role="status"><span className="effect-spinner">✦</span><strong>正在生成并质检</strong><small>系统会检查腿脚和鞋子是否完整<br />不合格将自动修复</small></div> : <button className="effect-trigger" onClick={() => generateOutfitLook(outfit)} aria-label={`生成“${outfit.title}”的穿搭效果图`} title={visualizationErrors[outfit.key]}><span>✦</span><strong>{visualizationErrors[outfit.key] ? "重新生成" : "效果图"}</strong><small className={visualizationErrors[outfit.key] ? "effect-error" : ""}>{visualizationErrors[outfit.key] ?? (bodyHeight && bodyWeight ? "点击生成模特试穿" : "先填写身体资料")}</small></button>}
                         </>}
-                      </div>
-                    </div> : <div className="look-canvas">
-                        {outfit.colors.map((color, colorIndex) => <span key={`${color}-${colorIndex}`} className={`look-piece look-piece-${colorIndex + 1}`} style={{ background: color }} />)}
                       </div>}
+                    </div>
                     <button className={`save-float ${saved.includes(outfit.key) ? "active" : ""}`} onClick={() => recordFeedback(outfit.key, "save")} aria-label="收藏搭配">{saved.includes(outfit.key) ? "♥" : "♡"}</button>
                   </div>
                   <div className="outfit-content">
