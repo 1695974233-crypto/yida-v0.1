@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { defaultCatalogKeys, virtualCatalog } from "../app/catalog";
 import { removeUserImages, requireUserData } from "./supabase-data";
+import { RequestTimer } from "./server-timing";
 
 type RequestConstraints = {
   scene?: string;
@@ -155,9 +156,13 @@ export async function getSupabaseState(request: Request) {
 }
 
 export async function postSupabaseState(request: Request) {
+  const timer = new RequestTimer("state.save");
   const { client, user } = await requireUserData(request);
+  timer.mark("auth");
   const payload = await request.json() as Record<string, unknown>;
+  timer.mark("parse");
   const userId = user.id;
+  const action = typeof payload.action === "string" ? payload.action : "unknown";
 
   // Profile-only saves should not initialize and then reload the entire user
   // state. A single update is noticeably faster on mobile networks far away
@@ -167,17 +172,20 @@ export async function postSupabaseState(request: Request) {
     const longitude = typeof payload.longitude === "number" && Number.isFinite(payload.longitude) ? Math.round(payload.longitude * 100) / 100 : null;
     if (latitude === null || longitude === null || latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) return Response.json({ error: "位置数据无效" }, { status: 400 });
     fail((await client.from("profiles").update({ weather_city: typeof payload.city === "string" ? payload.city.slice(0, 40) : "当前位置", weather_latitude: latitude, weather_longitude: longitude, updated_at: new Date().toISOString() }).eq("user_id", userId)).error, "位置保存失败");
-    return Response.json({ ok: true });
+    timer.mark("database");
+    return timer.finish(Response.json({ ok: true }), { action });
   }
   if (payload.action === "update_styles" && Array.isArray(payload.styles)) {
     fail((await client.from("profiles").update({ preferred_styles: payload.styles, updated_at: new Date().toISOString() }).eq("user_id", userId)).error, "偏好保存失败");
-    return Response.json({ ok: true });
+    timer.mark("database");
+    return timer.finish(Response.json({ ok: true }), { action });
   }
   if (payload.action === "complete_onboarding") {
     const updates: Record<string, unknown> = { onboarding_completed: true, updated_at: new Date().toISOString() };
     if (Array.isArray(payload.styles)) updates.preferred_styles = payload.styles;
     fail((await client.from("profiles").update(updates).eq("user_id", userId)).error, "新手引导保存失败");
-    return Response.json({ ok: true });
+    timer.mark("database");
+    return timer.finish(Response.json({ ok: true }), { action });
   }
 
   await ensureUser(client, user.id, user.name);
@@ -255,5 +263,8 @@ export async function postSupabaseState(request: Request) {
     return Response.json({ error: "无法识别的操作" }, { status: 400 });
   }
 
-  return Response.json(await stateFor(client, userId));
+  timer.mark("mutation");
+  const state = await stateFor(client, userId);
+  timer.mark("reload");
+  return timer.finish(Response.json(state), { action });
 }
