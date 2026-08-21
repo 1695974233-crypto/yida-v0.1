@@ -1,7 +1,7 @@
 {
   "name": "yida-ai-wardrobe",
-  "version": "0.1.0",
-  "description": "易搭：基于个人衣柜、天气、场景和偏好的 AI 穿搭助手 v0.1",
+  "version": "1.0.0",
+  "description": "易搭 v1.0：基于个人衣柜、天气、场景和偏好的 AI 穿搭助手",
   "private": true,
   "engines": {
     "node": ">=22.13.0"

@@ -1,4 +1,4 @@
-# 易搭 v0.1 veFaaS 迁移说明
+# 易搭 v1.0 veFaaS 部署说明
 
 ## 当前状态
 
@@ -6,12 +6,12 @@
 - 区域：`cn-beijing`
 - 应用 ID：`5a633b9cd680`
 - 函数 ID：`apv3rdwq`
-- 国内预发布地址：`https://s877em6sdkp7rquqv523o.apigateway-cn-beijing.volceapi.com/`
+- 正式体验地址：`https://s877em6sdkp7rquqv523o.apigateway-cn-beijing.volceapi.com/`
 - 资源规格：0.5 vCPU / 1 GB，最小实例数 0，最大实例数 5
 - 数据与认证：Supabase Auth、Postgres、Storage
 - AI：火山方舟 Seed 2.0 Lite 与 Seedream 5.0 Lite
 
-旧的 ChatGPT Sites 地址在迁移期继续保留，不在新环境验收通过前下线。
+当前 GitHub About、README 和线上体验入口统一使用上述 veFaaS 地址。
 
 ## 已完成
 
@@ -32,7 +32,7 @@
 - 静态 CSS/JavaScript 返回 HTTP 200。
 - 未登录访问用户数据接口返回 HTTP 401。
 - Google 与 GitHub OAuth 入口均正常返回 302 跳转。
-- 本地测试 5 项全部通过。
+- 本地自动化测试 6 项全部通过。
 
 ## 本地构建与发布
 
