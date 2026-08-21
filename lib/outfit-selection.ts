@@ -19,6 +19,14 @@ export function dedupeGarmentsForRecommendations<T extends RecommendationGarment
   return [...unique.values()];
 }
 
+export function outfitCoreRecommendationKey(garments: RecommendationGarment[]) {
+  return garments
+    .filter((garment) => garment.category !== "鞋子" && garment.category !== "配饰")
+    .map(garmentRecommendationKey)
+    .sort()
+    .join("|");
+}
+
 export function selectEligibleOutfits<T extends { key: string }>(
   generatedOutfits: T[],
   dislikedKeys: string[],

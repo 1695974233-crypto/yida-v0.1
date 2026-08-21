@@ -2,7 +2,7 @@
 
 import { ChangeEvent, FormEvent, useEffect, useMemo, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
-import { dedupeGarmentsForRecommendations, garmentRecommendationKey, selectEligibleOutfits } from "../lib/outfit-selection";
+import { dedupeGarmentsForRecommendations, outfitCoreRecommendationKey, selectEligibleOutfits } from "../lib/outfit-selection";
 import { resolveKnownWeatherCity } from "../lib/weather-cities";
 import { defaultCatalogKeys, virtualCatalog } from "./catalog";
 
@@ -189,8 +189,8 @@ function buildOutfits(garments: Garment[], scene: string | null, styles: string[
     const neutralNames = new Set(["燕麦色", "浅蓝", "奶油白", "深灰", "牛仔蓝", "黑色", "米白", "灰色", "棕色"]);
     if (pieces.filter((item) => neutralNames.has(item.colorName)).length >= 3) score += 5;
     const itemIds = pieces.map((item) => item.id);
-    const combinationKey = pieces.map(garmentRecommendationKey).sort().join("|");
-    const key = `${scene ?? "日常"}-${combinationKey}`;
+    const coreCombinationKey = outfitCoreRecommendationKey(pieces);
+    const key = `${scene ?? "日常"}-${coreCombinationKey}`;
     candidates.push({
       key,
       title: scene === "上班" ? "轻松有分寸" : scene === "约会" ? "温柔但不刻意" : scene === "运动" ? "舒服动起来" : isRainy && outer ? "雨天也清爽" : outer ? "温差也从容" : "舒服不费力",

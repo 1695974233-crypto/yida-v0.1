@@ -14,7 +14,7 @@ async function loadTypeScriptModule(url) {
 }
 
 test("removes disliked outfits before filling and rotating recommendations", async () => {
-  const { dedupeGarmentsForRecommendations, garmentRecommendationKey, selectEligibleOutfits } = await loadTypeScriptModule(new URL("../lib/outfit-selection.ts", import.meta.url));
+  const { dedupeGarmentsForRecommendations, garmentRecommendationKey, outfitCoreRecommendationKey, selectEligibleOutfits } = await loadTypeScriptModule(new URL("../lib/outfit-selection.ts", import.meta.url));
   const generated = ["a", "b", "c", "d", "e"].map((key) => ({ key }));
 
   assert.deepEqual(selectEligibleOutfits(generated, ["b"], 0).visible.map((item) => item.key), ["a", "c", "d"]);
@@ -28,6 +28,20 @@ test("removes disliked outfits before filling and rotating recommendations", asy
   ];
   assert.deepEqual(dedupeGarmentsForRecommendations(duplicateGarments).map((item) => item.id), [1, 3]);
   assert.equal(garmentRecommendationKey(duplicateGarments[0]), garmentRecommendationKey(duplicateGarments[1]));
+
+  const blackTee = { category: "上衣", name: "黑色印花 T 恤", colorName: "黑色" };
+  const whiteTee = { category: "上衣", name: "白色印花 T 恤", colorName: "白色" };
+  const brownPants = { category: "下装", name: "棕色牛仔裤", colorName: "棕色" };
+  const brownShoes = { category: "鞋子", name: "棕色板鞋", colorName: "棕色" };
+  const greenShoes = { category: "鞋子", name: "绿白板鞋", colorName: "绿色" };
+  assert.equal(
+    outfitCoreRecommendationKey([blackTee, brownPants, brownShoes]),
+    outfitCoreRecommendationKey([blackTee, brownPants, greenShoes]),
+  );
+  assert.notEqual(
+    outfitCoreRecommendationKey([blackTee, brownPants, brownShoes]),
+    outfitCoreRecommendationKey([whiteTee, brownPants, brownShoes]),
+  );
 });
 
 async function render() {
