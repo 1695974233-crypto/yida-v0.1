@@ -82,6 +82,13 @@ export async function requireUserData(request: Request): Promise<UserDataContext
   if (!accessToken) throw new Error("请先登录");
   const user = await getSupabaseUser(request, accessToken);
   if (!user) throw new Error("登录状态已失效，请重新登录");
+  if (process.env.YIDA_STAGING_MODE === "true") {
+    const allowedEmails = (process.env.YIDA_DEVELOPER_EMAILS ?? "")
+      .split(",")
+      .map((email) => email.trim().toLowerCase())
+      .filter(Boolean);
+    if (!allowedEmails.includes(user.email.toLowerCase())) throw new Error("迁移测试环境仅向开发者开放");
+  }
   const client = createClient(supabaseUrl, supabasePublishableKey, {
     global: { headers: { Authorization: `Bearer ${accessToken}` } },
     auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
